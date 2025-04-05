@@ -1417,4 +1417,87 @@ export class SpotifyService {
     
     return description;
   }
+
+  public async createPlaylist(name: string, description: string): Promise<string> {
+    try {
+      const token = await this.getAccessToken();
+      
+      // First get the user's ID
+      const userResponse = await axios.get('https://api.spotify.com/v1/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const userId = userResponse.data.id;
+      
+      // Create the playlist
+      const response = await axios.post(
+        `https://api.spotify.com/v1/users/${userId}/playlists`,
+        {
+          name,
+          description,
+          public: false
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      return response.data.id;
+    } catch (error) {
+      console.error('Error creating playlist:', error);
+      throw new Error('Failed to create playlist');
+    }
+  }
+
+  public async addTracksToPlaylist(playlistId: string, trackUris: string[]): Promise<void> {
+    try {
+      const token = await this.getAccessToken();
+      
+      await axios.post(
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
+        {
+          uris: trackUris
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error adding tracks to playlist:', error);
+      throw new Error('Failed to add tracks to playlist');
+    }
+  }
+
+  public async createPlaylistFromRecommendations(recommendations: SpotifyRecommendation[]): Promise<string> {
+    try {
+      // Create a new playlist
+      const playlistId = await this.createPlaylist(
+        'Vibify Smart Radio Playlist',
+        'Playlist created by Vibify Smart Radio based on your preferences'
+      );
+      
+      // Get track URIs from recommendations
+      const trackUris = recommendations.map(rec => {
+        // Extract track ID from spotifyUrl
+        const trackId = rec.spotifyUrl.split('/').pop();
+        return `spotify:track:${trackId}`;
+      });
+      
+      // Add tracks to the playlist
+      await this.addTracksToPlaylist(playlistId, trackUris);
+      
+      return playlistId;
+    } catch (error) {
+      console.error('Error creating playlist from recommendations:', error);
+      throw new Error('Failed to create playlist from recommendations');
+    }
+  }
 } 

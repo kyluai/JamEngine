@@ -8,9 +8,10 @@ import { SpotifyService, SpotifyRecommendation, MoodAnalysis } from '../lib/spot
 interface PromptInputProps {
   spotifyService: SpotifyService;
   onMoodDetected?: (mood: string) => void;
+  onRecommendationsReceived?: (recommendations: SpotifyRecommendation[], analysis: MoodAnalysis | null) => void;
 }
 
-export function PromptInput({ spotifyService, onMoodDetected }: PromptInputProps) {
+export function PromptInput({ spotifyService, onMoodDetected, onRecommendationsReceived }: PromptInputProps) {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [recommendations, setRecommendations] = useState<SpotifyRecommendation[]>([]);
@@ -47,6 +48,11 @@ export function PromptInput({ spotifyService, onMoodDetected }: PromptInputProps
       }
       
       setRecommendations(results);
+      
+      // Call the onRecommendationsReceived callback if provided
+      if (onRecommendationsReceived) {
+        onRecommendationsReceived(results, results.length > 0 && results[0].moodAnalysis ? results[0].moodAnalysis : null);
+      }
     } catch (err) {
       console.error('Error getting recommendations:', err);
       setError(err instanceof Error ? err.message : 'Failed to get recommendations. Please try again.');

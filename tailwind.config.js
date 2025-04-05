@@ -1,11 +1,18 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        background: '#0A0A0B',
-        foreground: '#FAFAFA',
+        background: {
+          DEFAULT: '#FFFFFF',
+          dark: '#0A0A0B',
+        },
+        foreground: {
+          DEFAULT: '#0A0A0B',
+          dark: '#FAFAFA',
+        },
         primary: {
           DEFAULT: '#7C3AED',
           foreground: '#FFFFFF',
@@ -19,8 +26,10 @@ export default {
           foreground: '#0A0A0B',
         },
         muted: {
-          DEFAULT: '#27272A',
-          foreground: '#A1A1AA',
+          DEFAULT: '#F4F4F5',
+          foreground: '#71717A',
+          dark: '#27272A',
+          'foreground-dark': '#A1A1AA',
         },
       },
       animation: {
