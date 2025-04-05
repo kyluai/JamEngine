@@ -189,7 +189,7 @@ export class SpotifyService {
     }
   }
 
-  private async searchTracks(query: string): Promise<SpotifyTrack[]> {
+  public async searchTracks(query: string): Promise<SpotifyTrack[]> {
     try {
       const token = await this.getAccessToken();
       
