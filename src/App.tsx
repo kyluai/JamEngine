@@ -9,7 +9,14 @@ import { About } from './components/about';
 import { LoginModal } from './components/login-modal';
 import { NowPlaying } from './components/now-playing';
 import { SpotifyService } from './lib/spotify-service';
+import { AppleMusicService } from './lib/apple-music-service';
+import { SoundCloudService } from './lib/soundcloud-service';
+import type { Recommendation } from './lib/music-service.interface';
+import { MusicSearchDemo } from './components/MusicSearchDemo';
 import './App.css';
+
+const appleMusicService = new AppleMusicService();
+const soundCloudService = new SoundCloudService();
 
 function App() {
   const [spotifyService] = useState(() => new SpotifyService());
@@ -17,6 +24,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentMood, setCurrentMood] = useState<string | undefined>(undefined);
+  const [text, setText] = useState('');
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Check if we're handling a callback
@@ -86,6 +96,30 @@ function App() {
     setCurrentMood(mood);
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Try Apple Music first
+      const appleRecs = await appleMusicService.getRecommendationsFromText(text);
+      setRecommendations(appleRecs);
+    } catch (appleError) {
+      console.error('Apple Music error:', appleError);
+      try {
+        // Fallback to SoundCloud
+        const soundCloudRecs = await soundCloudService.getRecommendationsFromText(text);
+        setRecommendations(soundCloudRecs);
+      } catch (soundCloudError) {
+        console.error('SoundCloud error:', soundCloudError);
+        setError('Failed to get recommendations. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     console.log('App render - isAuthenticated:', isAuthenticated, 'currentMood:', currentMood);
   }, [isAuthenticated, currentMood]);
@@ -99,71 +133,15 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="fixed inset-0 bg-[linear-gradient(to_right,#4F46E5,#7C3AED,#2DD4BF)] opacity-20 animate-gradient-xy blur-[100px]" />
-      
-      <div className="relative">
-        <Navbar isAuthenticated={isAuthenticated} onLogin={handleLogin} />
-        
-        <main className="container mx-auto flex min-h-screen flex-col items-center px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mt-32 text-center"
-          >
-            <div className="mb-8 flex items-center justify-center gap-4">
-              <Music2 className="h-12 w-12 text-primary" />
-              <h1 className="text-5xl font-bold tracking-tight">Vibify</h1>
-            </div>
-            <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
-              Let AI create the perfect playlist based on your vibe. Describe your mood,
-              location, or the atmosphere you want to create, and we'll do the rest.
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="mt-12 w-full max-w-3xl"
-          >
-            <PromptInput 
-              spotifyService={spotifyService} 
-              onMoodDetected={handleMoodDetected}
-            />
-          </motion.div>
-
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="error-message mt-4"
-            >
-              {error}
-            </motion.div>
-          )}
-
-          <Features />
-          <Pricing />
-          <About />
-        </main>
-      </div>
-
-      {isAuthenticated && (
-        <NowPlaying 
-          spotifyService={spotifyService} 
-          promptMood={currentMood}
-        />
-      )}
-
-      {!isAuthenticated && (
-        <LoginModal
-          isOpen={true}
-          onClose={() => {}} // Prevent closing until authenticated
-          onLogin={handleLogin}
-        />
-      )}
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <h1 className="text-2xl font-bold text-gray-900">Vibify</h1>
+        </div>
+      </header>
+      <main>
+        <MusicSearchDemo />
+      </main>
     </div>
   );
 }

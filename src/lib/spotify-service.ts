@@ -1,54 +1,72 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import { MusicService, Track, Recommendation, CurrentTrack } from './music-service.interface';
 
-export interface SpotifyTrack {
+// Add Vite environment variable types
+interface ImportMetaEnv {
+  VITE_SPOTIFY_CLIENT_ID: string;
+  VITE_SPOTIFY_CLIENT_SECRET: string;
+  VITE_SPOTIFY_REDIRECT_URI?: string;
+}
+
+interface ImportMeta {
+  env: ImportMetaEnv;
+}
+
+interface SpotifyTrack {
   id: string;
   name: string;
-  artist: string;
-  album: string;
+  artists: Array<{ name: string }>;
+  album: {
+    name: string;
+    images: Array<{ url: string }>;
+  };
+  external_urls: {
+    spotify: string;
+  };
   preview_url: string | null;
-  external_url: string;
-  images: any[];
 }
 
-export interface SpotifyRecommendation {
-  title: string;
-  artist: string;
-  mood: string;
-  confidence: number;
-  tempo: number;
-  genre: string;
-  description: string;
-  previewUrl: string | null;
-  spotifyUrl: string;
-  imageUrl: string;
+interface SpotifySearchResponse {
+  tracks: {
+    items: SpotifyTrack[];
+  };
 }
 
-export interface CurrentTrack {
-  name: string;
-  artist: string;
-  album: string;
-  imageUrl: string;
-  isPlaying: boolean;
-  progress: number;
-  duration: number;
+interface SpotifyRecommendationsResponse {
+  tracks: SpotifyTrack[];
 }
 
-export class SpotifyService {
-  private readonly CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-  private readonly CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
-  private readonly REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI || 'http://localhost:3000/callback';
+interface SpotifyCurrentlyPlayingResponse {
+  item: SpotifyTrack | null;
+  is_playing: boolean;
+  progress_ms: number;
+}
+
+export class SpotifyService implements MusicService {
+  private readonly CLIENT_ID: string;
+  private readonly REDIRECT_URI: string;
+  private readonly SCOPES: string;
   private accessToken: string | null = null;
+  private refreshToken: string | null = null;
 
   constructor() {
+    this.CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+    this.REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI;
+    this.SCOPES = 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming user-read-recently-played user-top-read playlist-read-private playlist-read-collaborative';
+    
     // Log environment variables (without exposing secrets)
     console.log('Spotify Client ID available:', !!this.CLIENT_ID);
-    console.log('Spotify Client Secret available:', !!this.CLIENT_SECRET);
+    console.log('Spotify Client Secret available:', !!import.meta.env.VITE_SPOTIFY_CLIENT_SECRET);
     
     // Check for existing token in localStorage
     const savedToken = localStorage.getItem('spotify_access_token');
     if (savedToken) {
       this.accessToken = savedToken;
     }
+  }
+
+  public isAuthenticated(): boolean {
+    return !!this.accessToken;
   }
 
   public async verifyToken(token: string): Promise<boolean> {
@@ -65,139 +83,124 @@ export class SpotifyService {
     }
   }
 
-  public initiateLogin() {
-    const scope = [
-      'user-read-private',
-      'user-read-email',
-      'playlist-read-private',
-      'user-top-read',
-      'user-read-recently-played',
-      'user-library-read',
-      'user-read-playback-state',
-      'user-modify-playback-state'
-    ].join(' ');
-    
-    const authUrl = new URL('https://accounts.spotify.com/authorize');
-    authUrl.searchParams.append('response_type', 'code');
-    authUrl.searchParams.append('client_id', this.CLIENT_ID);
-    authUrl.searchParams.append('scope', scope);
-    authUrl.searchParams.append('redirect_uri', this.REDIRECT_URI);
-    authUrl.searchParams.append('show_dialog', 'true');
+  public initiateLogin(): string {
+    const params = new URLSearchParams({
+      client_id: this.CLIENT_ID,
+      response_type: 'code',
+      redirect_uri: this.REDIRECT_URI,
+      scope: this.SCOPES,
+      show_dialog: 'true'
+    });
 
-    window.location.href = authUrl.toString();
+    return `https://accounts.spotify.com/authorize?${params.toString()}`;
   }
 
   public async handleCallback(code: string): Promise<void> {
     try {
-      const response = await axios.post('https://accounts.spotify.com/api/token', 
-        new URLSearchParams({
-          grant_type: 'authorization_code',
-          code: code,
-          redirect_uri: this.REDIRECT_URI,
-          client_id: this.CLIENT_ID,
-          client_secret: this.CLIENT_SECRET
-        }), {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          }
-        });
+      const params = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: this.REDIRECT_URI,
+        client_id: this.CLIENT_ID,
+        client_secret: import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
+      });
 
-      const token = response.data.access_token;
-      if (!token) {
-        throw new Error('No access token received from Spotify');
-      }
+      const response = await axios.post('https://accounts.spotify.com/api/token', params, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
 
-      this.accessToken = token;
-      localStorage.setItem('spotify_access_token', token);
+      this.accessToken = response.data.access_token;
+      this.refreshToken = response.data.refresh_token;
+
+      localStorage.setItem('spotify_access_token', this.accessToken);
+      localStorage.setItem('spotify_refresh_token', this.refreshToken);
     } catch (error) {
-      console.error('Error handling callback:', error);
+      console.error('Error handling Spotify callback:', error);
+      throw new Error('Failed to authenticate with Spotify');
+    }
+  }
+
+  private async refreshAccessToken(): Promise<void> {
+    if (!this.refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    try {
+      const params = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: this.refreshToken,
+        client_id: this.CLIENT_ID,
+        client_secret: import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
+      });
+
+      const response = await axios.post('https://accounts.spotify.com/api/token', params, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+
+      this.accessToken = response.data.access_token;
+      localStorage.setItem('spotify_access_token', this.accessToken);
+    } catch (error) {
+      console.error('Error refreshing Spotify token:', error);
+      throw new Error('Failed to refresh Spotify token');
+    }
+  }
+
+  private async makeRequest<T>(url: string, method: 'get' | 'post' = 'get', data?: any): Promise<T> {
+    if (!this.accessToken) {
+      throw new Error('Not authenticated with Spotify');
+    }
+
+    try {
+      const response = await axios.request<T>({
+        url,
+        method,
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        data
+      });
+
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        await this.refreshAccessToken();
+        return this.makeRequest(url, method, data);
+      }
       throw error;
     }
   }
 
-  private async getAccessToken(): Promise<string> {
-    if (this.accessToken) {
-      // Verify the token is still valid
-      const isValid = await this.verifyToken(this.accessToken);
-      if (isValid) {
-        return this.accessToken;
-      }
-      // If token is invalid, clear it
-      this.accessToken = null;
-      localStorage.removeItem('spotify_access_token');
-    }
-
-    const savedToken = localStorage.getItem('spotify_access_token');
-    if (savedToken) {
-      const isValid = await this.verifyToken(savedToken);
-      if (isValid) {
-        this.accessToken = savedToken;
-        return savedToken;
-      }
-      localStorage.removeItem('spotify_access_token');
-    }
-
-    throw new Error('No valid access token available. Please log in again.');
-  }
-
-  private async searchTracks(query: string): Promise<SpotifyTrack[]> {
+  public async searchTracks(query: string): Promise<Track[]> {
     try {
-      const token = await this.getAccessToken();
-      console.log('Searching tracks with query:', query);
-      
-      // Use the search endpoint to find tracks
-      const response = await axios.get('https://api.spotify.com/v1/search', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        params: {
-          q: query,
-          type: 'track',
-          limit: 20,
-          market: 'US'
-        }
-      });
-      
-      console.log('Search response:', {
-        total: response.data.tracks.total,
-        items: response.data.tracks.items.length
-      });
-      
-      if (!response.data.tracks || response.data.tracks.items.length === 0) {
-        throw new Error('No tracks found matching your description');
-      }
-      
-      // Return all tracks without filtering for preview URLs
-      return response.data.tracks.items.map((track: any) => ({
-        id: track.id,
-        name: track.name,
+      const response = await this.makeRequest<SpotifySearchResponse>(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`
+      );
+
+      return response.tracks.items.map(track => ({
+        title: track.name,
         artist: track.artists[0].name,
-        album: track.album.name,
-        preview_url: track.preview_url || null,
-        external_url: track.external_urls.spotify,
-        images: track.album.images
+        mood: 'general',
+        confidence: 0.8,
+        tempo: 120,
+        genre: 'Unknown',
+        description: `Track from ${track.album.name}`,
+        previewUrl: track.preview_url || '',
+        externalUrl: track.external_urls.spotify,
+        imageUrl: track.album.images[0]?.url || ''
       }));
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        console.error('Error searching Spotify tracks:', {
-          status: error.response?.status,
-          message: error.response?.data?.error?.message || error.message,
-          details: error.response?.data
-        });
-        
-        if (error.response?.status === 401) {
-          this.initiateLogin();
-          throw new Error('Your session has expired. Please log in again.');
-        }
-      }
-      throw error;
+      console.error('Error searching Spotify tracks:', error);
+      throw new Error('Failed to search tracks on Spotify');
     }
   }
 
-  private async getRecommendations(seedTracks: string[], mood: string): Promise<SpotifyTrack[]> {
+  private async getRecommendations(seedTracks: string[], mood: string): Promise<Track[]> {
     try {
-      const token = await this.getAccessToken();
-      
       // Validate seed tracks
       if (!seedTracks || seedTracks.length === 0) {
         throw new Error('No seed tracks provided');
@@ -229,19 +232,16 @@ export class SpotifyService {
       console.log('Request parameters:', queryParams);
 
       // Use the correct URL format for the recommendations endpoint
-      const response = await axios.get('https://api.spotify.com/v1/recommendations', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        params: queryParams
-      });
+      const response = await this.makeRequest<SpotifyRecommendationsResponse>(
+        `https://api.spotify.com/v1/recommendations?${new URLSearchParams(queryParams).toString()}`
+      );
 
       console.log('Recommendations response:', {
         status: response.status,
-        tracks: response.data.tracks?.length
+        tracks: response.tracks?.length
       });
 
-      if (!response.data || !response.data.tracks) {
+      if (!response.tracks) {
         throw new Error('Invalid response from Spotify API');
       }
 
@@ -250,41 +250,12 @@ export class SpotifyService {
         name: track.name,
         artist: track.artists[0].name,
         album: track.album.name,
-        preview_url: track.preview_url || null,
-        external_url: track.external_urls.spotify,
-        images: track.album.images
+        previewUrl: track.preview_url || null,
+        externalUrl: track.external_urls.spotify,
+        imageUrl: track.album.images[0]?.url || ''
       }));
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        console.error('Error getting Spotify recommendations:', {
-          status: error.response?.status,
-          message: error.response?.data?.error?.message || error.message,
-          details: error.response?.data,
-          request: {
-            url: error.config?.url,
-            params: error.config?.params,
-            headers: error.config?.headers
-          }
-        });
-        
-        if (error.response?.status === 404) {
-          // Try with a different approach - search for tracks with the mood
-          console.log('404 error, trying with search approach');
-          const searchResults = await this.searchTracks(mood);
-          
-          if (searchResults.length > 0) {
-            return searchResults;
-          }
-          
-          throw new Error('Unable to get recommendations. Please try again with a different mood or description.');
-        } else if (error.response?.status === 401) {
-          this.initiateLogin();
-          throw new Error('Your session has expired. Please log in again.');
-        } else {
-          throw new Error(error.response?.data?.error?.message || 'Failed to get recommendations. Please try again.');
-        }
-      }
-      throw error;
+      this.handleAxiosError(error);
     }
   }
 
@@ -330,7 +301,7 @@ export class SpotifyService {
     return moodDanceabilityMap[mood.toLowerCase()] || 0.5;
   }
 
-  async getRecommendationsFromText(text: string): Promise<SpotifyRecommendation[]> {
+  public async getRecommendationsFromText(text: string): Promise<Recommendation[]> {
     try {
       // First, search for tracks based on the text
       console.log('Searching for tracks based on text:', text);
@@ -362,9 +333,9 @@ export class SpotifyService {
         tempo: 120, // Default tempo value
         genre: 'Various',
         description: `A ${detectedMood} song that matches your vibe`,
-        previewUrl: track.preview_url,
-        spotifyUrl: track.external_url,
-        imageUrl: track.images[0]?.url || ''
+        previewUrl: track.previewUrl,
+        externalUrl: track.externalUrl,
+        imageUrl: track.imageUrl
       }));
     } catch (error) {
       console.error('Error in getRecommendationsFromText:', error);
@@ -393,7 +364,7 @@ export class SpotifyService {
     }
   }
   
-  private async getSimpleRecommendations(text: string, mood: string): Promise<SpotifyRecommendation[]> {
+  private async getSimpleRecommendations(text: string, mood: string): Promise<Recommendation[]> {
     try {
       // Try to search with both text and mood
       console.log('Trying to search with text and mood:', text, mood);
@@ -416,9 +387,9 @@ export class SpotifyService {
           tempo: 120, // Default tempo value
           genre: 'Various',
           description: `A ${mood} song that matches your vibe`,
-          previewUrl: track.preview_url,
-          spotifyUrl: track.external_url,
-          imageUrl: track.images[0]?.url || ''
+          previewUrl: track.previewUrl,
+          externalUrl: track.externalUrl,
+          imageUrl: track.imageUrl
         }));
       }
       
@@ -430,9 +401,9 @@ export class SpotifyService {
         tempo: 120, // Default tempo value
         genre: 'Various',
         description: `A ${mood} song that matches your vibe`,
-        previewUrl: track.preview_url,
-        spotifyUrl: track.external_url,
-        imageUrl: track.images[0]?.url || ''
+        previewUrl: track.previewUrl,
+        externalUrl: track.externalUrl,
+        imageUrl: track.imageUrl
       }));
     } catch (error) {
       console.error('Error in getSimpleRecommendations:', error);
@@ -486,7 +457,7 @@ export class SpotifyService {
     return detectedMood;
   }
 
-  public async getCurrentTrack(): Promise<CurrentTrack> {
+  public async getCurrentTrack(): Promise<CurrentTrack | null> {
     try {
       console.log('getCurrentTrack called');
       const token = await this.getAccessToken();
@@ -502,7 +473,7 @@ export class SpotifyService {
       
       if (response.status === 204) {
         console.log('No track currently playing (204 status)');
-        throw new Error('No track currently playing');
+        return null;
       }
       
       const track = response.data.item;
