@@ -100,11 +100,14 @@ export class SpotifyService {
       'user-read-private',
       'user-read-email',
       'playlist-read-private',
+      'playlist-modify-private',
+      'playlist-modify-public',
       'user-top-read',
       'user-read-recently-played',
       'user-library-read',
       'user-read-playback-state',
-      'user-modify-playback-state'
+      'user-modify-playback-state',
+      'streaming'
     ].join(' ');
     
     const authUrl = new URL('https://accounts.spotify.com/authorize');
@@ -146,28 +149,44 @@ export class SpotifyService {
   }
 
   private async getAccessToken(): Promise<string> {
-    if (this.accessToken) {
-      // Verify the token is still valid
-      const isValid = await this.verifyToken(this.accessToken);
-      if (isValid) {
-        return this.accessToken;
+    try {
+      if (this.accessToken) {
+        // Verify the token is still valid
+        const isValid = await this.verifyToken(this.accessToken);
+        if (isValid) {
+          return this.accessToken;
+        }
+        // If token is invalid, clear it
+        this.accessToken = null;
+        localStorage.removeItem('spotify_access_token');
       }
-      // If token is invalid, clear it
+
+      const savedToken = localStorage.getItem('spotify_access_token');
+      if (savedToken) {
+        const isValid = await this.verifyToken(savedToken);
+        if (isValid) {
+          this.accessToken = savedToken;
+          return savedToken;
+        }
+        localStorage.removeItem('spotify_access_token');
+      }
+
+      // If we get here, we need to force a new login
+      console.log('No valid token found, initiating new login');
+      localStorage.removeItem('spotify_access_token');
       this.accessToken = null;
-      localStorage.removeItem('spotify_access_token');
-    }
-
-    const savedToken = localStorage.getItem('spotify_access_token');
-    if (savedToken) {
-      const isValid = await this.verifyToken(savedToken);
-      if (isValid) {
-        this.accessToken = savedToken;
-        return savedToken;
+      this.initiateLogin();
+      throw new Error('Please log in to Spotify to continue.');
+    } catch (error) {
+      console.error('Error in getAccessToken:', error);
+      // Force new login for any authorization errors
+      if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
+        localStorage.removeItem('spotify_access_token');
+        this.accessToken = null;
+        this.initiateLogin();
       }
-      localStorage.removeItem('spotify_access_token');
+      throw error;
     }
-
-    throw new Error('No valid access token available. Please log in again.');
   }
 
   private async searchTracks(query: string): Promise<SpotifyTrack[]> {
@@ -1429,7 +1448,13 @@ export class SpotifyService {
         }
       });
       
+      if (!userResponse.data || !userResponse.data.id) {
+        console.error('Failed to get user ID:', userResponse);
+        throw new Error('Could not get user ID from Spotify');
+      }
+
       const userId = userResponse.data.id;
+      console.log('Creating playlist for user:', userId);
       
       // Create the playlist
       const response = await axios.post(
@@ -1447,10 +1472,25 @@ export class SpotifyService {
         }
       );
       
+      if (!response.data || !response.data.id) {
+        console.error('Invalid playlist creation response:', response);
+        throw new Error('Invalid response from Spotify when creating playlist');
+      }
+
+      console.log('Successfully created playlist:', response.data.id);
       return response.data.id;
     } catch (error) {
       console.error('Error creating playlist:', error);
-      throw new Error('Failed to create playlist');
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          // Clear token and force new login
+          localStorage.removeItem('spotify_access_token');
+          this.accessToken = null;
+          this.initiateLogin();
+          throw new Error('Your session has expired or you need additional permissions. Please log in again.');
+        }
+      }
+      throw new Error('Failed to create playlist. Please try logging in again.');
     }
   }
 
