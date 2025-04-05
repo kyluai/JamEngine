@@ -1,16 +1,4 @@
-import axios, { AxiosError } from 'axios';
-import { MusicService, Track, Recommendation, CurrentTrack } from './music-service.interface';
-
-// Add Vite environment variable types
-interface ImportMetaEnv {
-  VITE_SOUNDCLOUD_CLIENT_ID: string;
-  VITE_SOUNDCLOUD_CLIENT_SECRET: string;
-  VITE_SOUNDCLOUD_REDIRECT_URI: string;
-}
-
-interface ImportMeta {
-  env: ImportMetaEnv;
-}
+import { MusicService, Track, CurrentTrack } from './music-service.interface';
 
 interface SoundCloudTrack {
   id: number;
@@ -18,360 +6,277 @@ interface SoundCloudTrack {
   user: {
     username: string;
   };
-  genre: string;
-  tag_list: string;
-  description: string;
-  duration: number;
+  artwork_url: string | null;
   stream_url: string;
   permalink_url: string;
-  artwork_url: string;
-  lyrics?: string;
+  duration: number;
+  genre: string;
+  description: string | null;
+}
+
+interface SoundCloudResponse {
+  collection: SoundCloudTrack[];
 }
 
 export class SoundCloudService implements MusicService {
-  private readonly CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
-  private readonly CLIENT_SECRET = import.meta.env.VITE_SOUNDCLOUD_CLIENT_SECRET;
-  private readonly REDIRECT_URI = import.meta.env.VITE_SOUNDCLOUD_REDIRECT_URI || 'http://localhost:3000/callback';
+  private readonly CLIENT_ID: string;
+  private readonly CLIENT_SECRET: string;
+  private readonly REDIRECT_URI: string;
   private accessToken: string | null = null;
 
   constructor() {
-    console.log('SoundCloud Client ID available:', !!this.CLIENT_ID);
-    console.log('SoundCloud Client Secret available:', !!this.CLIENT_SECRET);
-    
-    const savedToken = localStorage.getItem('soundcloud_access_token');
-    if (savedToken) {
-      this.accessToken = savedToken;
+    const clientId = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
+    const clientSecret = import.meta.env.VITE_SOUNDCLOUD_CLIENT_SECRET;
+    const redirectUri = import.meta.env.VITE_SOUNDCLOUD_REDIRECT_URI;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new Error('Missing required SoundCloud configuration');
+    }
+
+    this.CLIENT_ID = clientId;
+    this.CLIENT_SECRET = clientSecret;
+    this.REDIRECT_URI = redirectUri;
+
+    // Check for existing token
+    this.accessToken = localStorage.getItem('soundcloud_access_token');
+  }
+
+  private async fetchSoundCloud<T>(endpoint: string, method: string = 'GET', body?: any): Promise<T> {
+    if (!this.accessToken) {
+      throw new Error('Not authenticated with SoundCloud');
+    }
+
+    try {
+      const response = await fetch(`https://api.soundcloud.com/${endpoint}`, {
+        method,
+        headers: {
+          'Authorization': `OAuth ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          this.accessToken = null;
+          localStorage.removeItem('soundcloud_access_token');
+          throw new Error('Session expired. Please log in again.');
+        }
+        throw new Error(`SoundCloud API error: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('SoundCloud API error:', error);
+      throw error;
     }
   }
 
-  public isAuthenticated(): boolean {
+  isAuthenticated(): boolean {
     return !!this.accessToken;
   }
 
-  public initiateLogin(): void {
-    const authUrl = new URL('https://soundcloud.com/connect');
-    authUrl.searchParams.append('client_id', this.CLIENT_ID);
-    authUrl.searchParams.append('redirect_uri', this.REDIRECT_URI);
-    authUrl.searchParams.append('response_type', 'code');
-    authUrl.searchParams.append('scope', 'non-expiring');
-    authUrl.searchParams.append('display', 'popup');
+  initiateLogin(): string {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.CLIENT_ID,
+      redirect_uri: this.REDIRECT_URI,
+      scope: 'non-expiring'
+    });
 
-    window.location.href = authUrl.toString();
+    return `https://soundcloud.com/connect?${params.toString()}`;
   }
 
-  public async handleCallback(code: string): Promise<void> {
+  async handleCallback(code: string): Promise<void> {
     try {
-      const response = await axios.post('https://api.soundcloud.com/oauth2/token', 
-        new URLSearchParams({
+      const response = await fetch('https://api.soundcloud.com/oauth2/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
           grant_type: 'authorization_code',
-          code: code,
           client_id: this.CLIENT_ID,
           client_secret: this.CLIENT_SECRET,
-          redirect_uri: this.REDIRECT_URI
-        }), {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          }
-        });
-
-      this.accessToken = response.data.access_token;
-      localStorage.setItem('soundcloud_access_token', this.accessToken);
-    } catch (error) {
-      this.handleAxiosError(error);
-    }
-  }
-
-  private handleAxiosError(error: unknown): never {
-    if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError;
-      console.error('SoundCloud API error:', {
-        status: axiosError.response?.status,
-        message: axiosError.response?.data?.error?.message || axiosError.message,
-        details: axiosError.response?.data,
-        request: {
-          url: axiosError.config?.url,
-          params: axiosError.config?.params,
-          headers: axiosError.config?.headers
-        }
+          redirect_uri: this.REDIRECT_URI,
+          code
+        })
       });
 
-      if (axiosError.response?.status === 401) {
-        this.initiateLogin();
-        throw new Error('Your session has expired. Please log in again.');
+      const data = await response.json();
+      if (data.access_token) {
+        this.accessToken = data.access_token;
+        localStorage.setItem('soundcloud_access_token', this.accessToken);
+      } else {
+        throw new Error('No access token received');
       }
-
-      throw new Error(axiosError.response?.data?.error?.message || 'Failed to complete the request. Please try again.');
-    }
-
-    throw error;
-  }
-
-  public async searchTracks(query: string): Promise<Track[]> {
-    if (!this.accessToken) {
-      throw new Error('Not authenticated with SoundCloud');
-    }
-
-    try {
-      const response = await axios.get('https://api.soundcloud.com/tracks', {
-        headers: {
-          'Authorization': `OAuth ${this.accessToken}`
-        },
-        params: {
-          q: query,
-          limit: 20,
-          filter: 'streamable',
-          license: 'cc-by-sa'
-        }
-      });
-
-      return response.data.map((track: SoundCloudTrack) => ({
-        id: track.id.toString(),
-        name: track.title,
-        artist: track.user.username,
-        album: '', // SoundCloud doesn't have albums
-        previewUrl: track.stream_url,
-        externalUrl: track.permalink_url,
-        imageUrl: track.artwork_url?.replace('-large', '-t500x500') || ''
-      }));
     } catch (error) {
-      this.handleAxiosError(error);
+      console.error('Error handling SoundCloud callback:', error);
+      throw new Error('Failed to authenticate with SoundCloud');
     }
   }
 
-  public async getRecommendationsFromText(text: string): Promise<Recommendation[]> {
-    if (!this.accessToken) {
-      throw new Error('Not authenticated with SoundCloud');
-    }
-
-    try {
-      // Extract keywords, genre, theme, and lyrics from text
-      const { keywords, genre, theme } = this.analyzeText(text);
-      
-      // Search for tracks with the extracted information
-      const response = await axios.get('https://api.soundcloud.com/tracks', {
-        headers: {
-          'Authorization': `OAuth ${this.accessToken}`
-        },
-        params: {
-          q: keywords.join(' '),
-          genres: genre,
-          tags: theme,
-          limit: 10,
-          filter: 'streamable',
-          license: 'cc-by-sa'
-        }
-      });
-
-      return response.data.map((track: SoundCloudTrack) => ({
-        title: track.title,
-        artist: track.user.username,
-        mood: this.determineMood(text),
-        confidence: this.calculateConfidence(track, keywords, genre, theme),
-        tempo: this.estimateTempo(track),
-        genre: track.genre || 'Various',
-        description: this.generateDescription(track, theme),
-        previewUrl: track.stream_url,
-        externalUrl: track.permalink_url,
-        imageUrl: track.artwork_url?.replace('-large', '-t500x500') || ''
-      }));
-    } catch (error) {
-      this.handleAxiosError(error);
-    }
-  }
-
-  private analyzeText(text: string): { keywords: string[], genre: string, theme: string } {
-    // Extract keywords using NLP techniques
-    const keywords = this.extractKeywords(text);
-    
-    // Determine genre based on keywords and text analysis
-    const genre = this.determineGenre(text);
-    
-    // Extract theme from text
-    const theme = this.extractTheme(text);
-    
-    return { keywords, genre, theme };
-  }
-
-  private extractKeywords(text: string): string[] {
-    // Remove common words and extract meaningful keywords
-    const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']);
-    const words = text.toLowerCase().split(/\s+/);
-    return words.filter(word => !commonWords.has(word) && word.length > 2);
-  }
-
-  private determineGenre(text: string): string {
-    const genreKeywords: { [key: string]: string[] } = {
-      'rock': ['rock', 'guitar', 'band', 'drums', 'electric'],
-      'pop': ['pop', 'catchy', 'radio', 'hit', 'sing'],
-      'hiphop': ['hip', 'hop', 'rap', 'beats', 'rhyme'],
-      'electronic': ['electronic', 'dance', 'edm', 'techno', 'house'],
-      'jazz': ['jazz', 'saxophone', 'improvisation', 'swing'],
-      'classical': ['classical', 'orchestra', 'symphony', 'piano', 'violin'],
-      'folk': ['folk', 'acoustic', 'guitar', 'traditional'],
-      'r&b': ['r&b', 'soul', 'blues', 'groove']
+  private convertSoundCloudTrack(track: SoundCloudTrack): Track {
+    return {
+      title: track.title,
+      artist: track.user.username,
+      mood: this.determineMood(track),
+      confidence: 0.8,
+      tempo: this.estimateTempo(track.duration),
+      genre: track.genre || 'Unknown',
+      description: track.description || `Track by ${track.user.username}`,
+      previewUrl: `${track.stream_url}?client_id=${this.CLIENT_ID}`,
+      externalUrl: track.permalink_url,
+      imageUrl: track.artwork_url?.replace('-large', '-t500x500') || 'default-artwork.jpg'
     };
-
-    const words = text.toLowerCase().split(/\s+/);
-    let maxMatches = 0;
-    let detectedGenre = 'Various';
-
-    for (const [genre, keywords] of Object.entries(genreKeywords)) {
-      const matches = words.filter(word => keywords.includes(word)).length;
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        detectedGenre = genre;
-      }
-    }
-
-    return detectedGenre;
   }
 
-  private extractTheme(text: string): string {
-    const themeKeywords: { [key: string]: string[] } = {
-      'love': ['love', 'heart', 'romance', 'relationship', 'together'],
-      'party': ['party', 'dance', 'celebration', 'fun', 'night'],
-      'sad': ['sad', 'heartbreak', 'lonely', 'miss', 'cry'],
-      'motivational': ['motivation', 'inspire', 'success', 'dream', 'goal'],
-      'nature': ['nature', 'peace', 'calm', 'ocean', 'mountain'],
-      'adventure': ['adventure', 'travel', 'explore', 'journey', 'discover']
-    };
-
-    const words = text.toLowerCase().split(/\s+/);
-    let maxMatches = 0;
-    let detectedTheme = 'general';
-
-    for (const [theme, keywords] of Object.entries(themeKeywords)) {
-      const matches = words.filter(word => keywords.includes(word)).length;
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        detectedTheme = theme;
-      }
-    }
-
-    return detectedTheme;
+  private determineMood(track: SoundCloudTrack): string {
+    // Simple mood detection based on genre and description
+    const text = `${track.genre} ${track.description || ''}`.toLowerCase();
+    
+    if (text.includes('happy') || text.includes('upbeat')) return 'happy';
+    if (text.includes('sad') || text.includes('melancholy')) return 'sad';
+    if (text.includes('energetic') || text.includes('party')) return 'energetic';
+    if (text.includes('calm') || text.includes('chill')) return 'calm';
+    if (text.includes('angry') || text.includes('intense')) return 'angry';
+    
+    return 'neutral';
   }
 
-  private determineMood(text: string): string {
-    const moodKeywords: { [key: string]: string[] } = {
-      'happy': ['happy', 'joy', 'excited', 'cheerful', 'upbeat'],
-      'sad': ['sad', 'depressed', 'down', 'melancholy', 'blue'],
-      'energetic': ['energetic', 'pumped', 'excited', 'energized', 'powerful'],
-      'calm': ['calm', 'peaceful', 'relaxed', 'serene', 'tranquil'],
-      'angry': ['angry', 'frustrated', 'mad', 'upset', 'annoyed'],
-      'romantic': ['romantic', 'love', 'passionate', 'intimate', 'romance'],
-      'nostalgic': ['nostalgic', 'memories', 'remember', 'past', 'old'],
-      'peaceful': ['peaceful', 'quiet', 'serene', 'tranquil', 'calm']
-    };
-
-    const words = text.toLowerCase().split(/\s+/);
-    let maxMatches = 0;
-    let detectedMood = 'neutral';
-
-    for (const [mood, keywords] of Object.entries(moodKeywords)) {
-      const matches = words.filter(word => keywords.includes(word)).length;
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        detectedMood = mood;
-      }
-    }
-
-    return detectedMood;
+  private estimateTempo(duration: number): number {
+    // Simple tempo estimation (this should be replaced with actual BPM detection)
+    return Math.floor(Math.random() * (180 - 60) + 60);
   }
 
-  private calculateConfidence(track: SoundCloudTrack, keywords: string[], genre: string, theme: string): number {
-    let confidence = 0.5; // Base confidence
-
-    // Check genre match
-    if (track.genre?.toLowerCase() === genre.toLowerCase()) {
-      confidence += 0.2;
-    }
-
-    // Check tag matches
-    const tags = track.tag_list.toLowerCase().split(' ');
-    const matchingTags = tags.filter(tag => 
-      keywords.some(keyword => tag.includes(keyword)) ||
-      tag.includes(theme)
+  async searchTracks(query: string): Promise<Track[]> {
+    const response = await this.fetchSoundCloud<SoundCloudResponse>(
+      `tracks?q=${encodeURIComponent(query)}&limit=10`
     );
-    confidence += (matchingTags.length / tags.length) * 0.3;
 
-    return Math.min(confidence, 1.0);
+    return response.collection.map(this.convertSoundCloudTrack.bind(this));
   }
 
-  private estimateTempo(track: SoundCloudTrack): number {
-    // This is a simplified estimation. In a real implementation,
-    // you would use audio analysis or metadata
-    return 120; // Default tempo
+  async getTopTracks(timeRange: string = 'medium_term', limit: number = 5): Promise<Track[]> {
+    const response = await this.fetchSoundCloud<SoundCloudResponse>(
+      `me/tracks?limit=${limit}`
+    );
+
+    return response.collection.map(this.convertSoundCloudTrack.bind(this));
   }
 
-  private generateDescription(track: SoundCloudTrack, theme: string): string {
-    const descriptions: { [key: string]: string } = {
-      'love': 'A romantic track perfect for those special moments',
-      'party': 'An energetic track to get the party started',
-      'sad': 'A melancholic track for reflective moments',
-      'motivational': 'An inspiring track to boost your motivation',
-      'nature': 'A peaceful track that connects with nature',
-      'adventure': 'An exciting track for your next adventure'
-    };
-
-    return descriptions[theme] || 'A track that matches your vibe';
-  }
-
-  public async getCurrentTrack(): Promise<CurrentTrack | null> {
-    if (!this.accessToken) {
-      throw new Error('Not authenticated with SoundCloud');
-    }
-
+  async getRecommendationsFromText(text: string): Promise<Track[]> {
     try {
-      const response = await axios.get('https://api.soundcloud.com/me/activities', {
-        headers: {
-          'Authorization': `OAuth ${this.accessToken}`
-        },
-        params: {
-          limit: 1
-        }
+      // Extract mood and genre from text
+      const { mood, genre } = this.analyzeMoodAndGenre(text);
+
+      // Search for tracks with similar mood and genre
+      const params = new URLSearchParams({
+        tags: `${mood},${genre}`,
+        limit: '10'
       });
 
-      if (!response.data.collection || response.data.collection.length === 0) {
+      const response = await this.fetchSoundCloud<SoundCloudResponse>(
+        `tracks?${params.toString()}`
+      );
+
+      return response.collection.map(track => ({
+        ...this.convertSoundCloudTrack(track),
+        mood,
+        confidence: this.calculateConfidence(text, track),
+        genre: genre || track.genre || 'Unknown'
+      }));
+    } catch (error) {
+      console.error('Error getting recommendations:', error);
+      throw new Error('Failed to get recommendations from SoundCloud');
+    }
+  }
+
+  private analyzeMoodAndGenre(text: string): { mood: string; genre: string } {
+    const moodMap: Record<string, string[]> = {
+      'happy': ['happy', 'joy', 'upbeat', 'cheerful'],
+      'sad': ['sad', 'melancholy', 'depressed', 'heartbreak'],
+      'energetic': ['energetic', 'pumped', 'excited', 'party'],
+      'calm': ['calm', 'peaceful', 'relaxed', 'chill'],
+      'angry': ['angry', 'intense', 'aggressive', 'hard']
+    };
+
+    const genreMap: Record<string, string[]> = {
+      'pop': ['pop', 'popular', 'catchy'],
+      'rock': ['rock', 'guitar', 'band'],
+      'hip-hop': ['hip hop', 'rap', 'beats'],
+      'electronic': ['electronic', 'edm', 'dance'],
+      'classical': ['classical', 'orchestra', 'symphony'],
+      'jazz': ['jazz', 'blues', 'smooth']
+    };
+
+    const text_lower = text.toLowerCase();
+    let detectedMood = 'neutral';
+    let detectedGenre = '';
+
+    for (const [mood, keywords] of Object.entries(moodMap)) {
+      if (keywords.some(keyword => text_lower.includes(keyword))) {
+        detectedMood = mood;
+        break;
+      }
+    }
+
+    for (const [genre, keywords] of Object.entries(genreMap)) {
+      if (keywords.some(keyword => text_lower.includes(keyword))) {
+        detectedGenre = genre;
+        break;
+      }
+    }
+
+    return { mood: detectedMood, genre: detectedGenre };
+  }
+
+  private calculateConfidence(text: string, track: SoundCloudTrack): number {
+    const keywords = text.toLowerCase().split(' ');
+    const trackWords = `${track.title} ${track.user.username} ${track.genre || ''} ${track.description || ''}`.toLowerCase();
+    
+    const matchingWords = keywords.filter(word => trackWords.includes(word)).length;
+    return Math.min(0.5 + (matchingWords * 0.1), 1.0);
+  }
+
+  async getCurrentTrack(): Promise<CurrentTrack | null> {
+    try {
+      const response = await this.fetchSoundCloud<{
+        title: string;
+        user: { username: string };
+        artwork_url: string | null;
+        duration: number;
+        current_position: number;
+        is_playing: boolean;
+      }>('me/player/current-track');
+
+      if (!response) {
         return null;
       }
 
-      const activity = response.data.collection[0];
-      if (activity.type !== 'track') {
-        return null;
-      }
-
-      const track = activity.origin;
       return {
-        name: track.title,
-        artist: track.user.username,
-        album: '', // SoundCloud doesn't have albums
-        imageUrl: track.artwork_url?.replace('-large', '-t500x500') || '',
-        isPlaying: false, // SoundCloud doesn't provide this information
-        progress: 0,
-        duration: track.duration
+        title: response.title,
+        artist: response.user.username,
+        isPlaying: response.is_playing,
+        progress: response.current_position,
+        duration: response.duration,
+        imageUrl: response.artwork_url?.replace('-large', '-t500x500') || 'default-artwork.jpg'
       };
     } catch (error) {
-      this.handleAxiosError(error);
+      console.error('Error getting current track:', error);
+      return null;
     }
   }
 
-  public async pausePlayback(): Promise<void> {
-    // SoundCloud doesn't provide direct playback control through their API
-    throw new Error('Playback control not supported by SoundCloud API');
+  async play(): Promise<void> {
+    await this.fetchSoundCloud('me/player/play', 'PUT');
   }
 
-  public async resumePlayback(): Promise<void> {
-    // SoundCloud doesn't provide direct playback control through their API
-    throw new Error('Playback control not supported by SoundCloud API');
+  async pause(): Promise<void> {
+    await this.fetchSoundCloud('me/player/pause', 'PUT');
   }
 
-  public async skipToNextTrack(): Promise<void> {
-    // SoundCloud doesn't provide direct playback control through their API
-    throw new Error('Playback control not supported by SoundCloud API');
-  }
-
-  public async skipToPreviousTrack(): Promise<void> {
-    // SoundCloud doesn't provide direct playback control through their API
-    throw new Error('Playback control not supported by SoundCloud API');
+  async skip(): Promise<void> {
+    await this.fetchSoundCloud('me/player/next', 'POST');
   }
 } 

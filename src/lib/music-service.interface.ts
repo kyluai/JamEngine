@@ -43,4 +43,5 @@ export interface MusicService {
   play(): Promise<void>;
   pause(): Promise<void>;
   skip(): Promise<void>;
+  getTopTracks(timeRange?: string, limit?: number): Promise<Track[]>;
 } 

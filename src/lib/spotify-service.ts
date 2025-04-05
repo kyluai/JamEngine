@@ -24,6 +24,7 @@ interface SpotifyTrack {
     spotify: string;
   };
   preview_url: string | null;
+  duration_ms: number;
 }
 
 interface SpotifySearchResponse {
@@ -44,25 +45,30 @@ interface SpotifyCurrentlyPlayingResponse {
 
 export class SpotifyService implements MusicService {
   private readonly CLIENT_ID: string;
+  private readonly CLIENT_SECRET: string;
   private readonly REDIRECT_URI: string;
-  private readonly SCOPES: string;
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
 
   constructor() {
-    this.CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-    this.REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI;
-    this.SCOPES = 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming user-read-recently-played user-top-read playlist-read-private playlist-read-collaborative';
+    const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+    const clientSecret = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
+    const redirectUri = import.meta.env.VITE_SPOTIFY_REDIRECT_URI;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new Error('Missing required Spotify configuration');
+    }
+
+    this.CLIENT_ID = clientId;
+    this.CLIENT_SECRET = clientSecret;
+    this.REDIRECT_URI = redirectUri;
     
     // Log environment variables (without exposing secrets)
     console.log('Spotify Client ID available:', !!this.CLIENT_ID);
-    console.log('Spotify Client Secret available:', !!import.meta.env.VITE_SPOTIFY_CLIENT_SECRET);
+    console.log('Spotify Client Secret available:', !!this.CLIENT_SECRET);
     
     // Check for existing token in localStorage
-    const savedToken = localStorage.getItem('spotify_access_token');
-    if (savedToken) {
-      this.accessToken = savedToken;
-    }
+    this.accessToken = localStorage.getItem('spotify_access_token');
   }
 
   public isAuthenticated(): boolean {
@@ -84,11 +90,21 @@ export class SpotifyService implements MusicService {
   }
 
   public initiateLogin(): string {
+    const scope = [
+      'user-read-private',
+      'user-read-email',
+      'user-top-read',
+      'user-read-recently-played',
+      'user-read-playback-state',
+      'user-modify-playback-state',
+      'streaming'
+    ].join(' ');
+
     const params = new URLSearchParams({
-      client_id: this.CLIENT_ID,
       response_type: 'code',
+      client_id: this.CLIENT_ID,
+      scope: scope,
       redirect_uri: this.REDIRECT_URI,
-      scope: this.SCOPES,
       show_dialog: 'true'
     });
 
@@ -97,19 +113,18 @@ export class SpotifyService implements MusicService {
 
   public async handleCallback(code: string): Promise<void> {
     try {
-      const params = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: this.REDIRECT_URI,
-        client_id: this.CLIENT_ID,
-        client_secret: import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
-      });
-
-      const response = await axios.post('https://accounts.spotify.com/api/token', params, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      });
+      const response = await axios.post('https://accounts.spotify.com/api/token',
+        new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: this.REDIRECT_URI,
+          client_id: this.CLIENT_ID,
+          client_secret: this.CLIENT_SECRET
+        }), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
 
       this.accessToken = response.data.access_token;
       this.refreshToken = response.data.refresh_token;
@@ -132,7 +147,7 @@ export class SpotifyService implements MusicService {
         grant_type: 'refresh_token',
         refresh_token: this.refreshToken,
         client_id: this.CLIENT_ID,
-        client_secret: import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
+        client_secret: this.CLIENT_SECRET
       });
 
       const response = await axios.post('https://accounts.spotify.com/api/token', params, {
@@ -175,28 +190,58 @@ export class SpotifyService implements MusicService {
     }
   }
 
-  public async searchTracks(query: string): Promise<Track[]> {
-    try {
-      const response = await this.makeRequest<SpotifySearchResponse>(
-        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`
-      );
-
-      return response.tracks.items.map(track => ({
-        title: track.name,
-        artist: track.artists[0].name,
-        mood: 'general',
-        confidence: 0.8,
-        tempo: 120,
-        genre: 'Unknown',
-        description: `Track from ${track.album.name}`,
-        previewUrl: track.preview_url || '',
-        externalUrl: track.external_urls.spotify,
-        imageUrl: track.album.images[0]?.url || ''
-      }));
-    } catch (error) {
-      console.error('Error searching Spotify tracks:', error);
-      throw new Error('Failed to search tracks on Spotify');
+  private async fetchSpotifyApi<T>(endpoint: string, method: string = 'GET', body?: any): Promise<T> {
+    if (!this.accessToken) {
+      throw new Error('Not authenticated with Spotify');
     }
+
+    try {
+      const response = await fetch(`https://api.spotify.com/${endpoint}`, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          this.accessToken = null;
+          localStorage.removeItem('spotify_access_token');
+          throw new Error('Session expired. Please log in again.');
+        }
+        throw new Error(`Spotify API error: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Spotify API error:', error);
+      throw error;
+    }
+  }
+
+  public async searchTracks(query: string): Promise<Track[]> {
+    const response = await this.fetchSpotifyApi<{ tracks: { items: SpotifyTrack[] } }>(
+      `v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`
+    );
+
+    return response.tracks.items.map(this.convertSpotifyTrack);
+  }
+
+  private convertSpotifyTrack(track: SpotifyTrack): Track {
+    return {
+      title: track.name,
+      artist: track.artists.map(artist => artist.name).join(', '),
+      mood: 'general',
+      confidence: 0.8,
+      tempo: 120,
+      genre: 'Unknown',
+      description: `Track from ${track.album.name}`,
+      previewUrl: track.preview_url || '',
+      externalUrl: track.external_urls.spotify,
+      imageUrl: track.album.images[0]?.url || ''
+    };
   }
 
   private async getRecommendations(seedTracks: string[], mood: string): Promise<Track[]> {
@@ -562,5 +607,13 @@ export class SpotifyService implements MusicService {
       console.error('Error skipping to previous track:', error);
       throw error;
     }
+  }
+
+  async getTopTracks(timeRange: 'short_term' | 'medium_term' | 'long_term' = 'medium_term', limit: number = 5): Promise<Track[]> {
+    const response = await this.fetchSpotifyApi<{ items: SpotifyTrack[] }>(
+      `v1/me/top/tracks?time_range=${timeRange}&limit=${limit}`
+    );
+
+    return response.items.map(this.convertSpotifyTrack);
   }
 } 

@@ -1,91 +1,159 @@
-# Vibify
+# Vibify Music Integration
 
-A music recommendation platform that uses natural language processing to find the perfect music for any mood or situation.
+A comprehensive music integration library that supports Spotify, Apple Music, and SoundCloud. This library provides a unified interface for searching tracks, getting recommendations, and controlling playback across multiple music streaming services.
 
 ## Features
 
-### Enhanced Music Search
-- **Natural Language Processing**: Search for music using natural language descriptions
-- **Multi-Service Support**: Search across Apple Music and SoundCloud simultaneously
-- **Smart Analysis**: Analyzes keywords, genre, theme, and lyrics to provide relevant recommendations
-- **Confidence Scoring**: Each recommendation includes a confidence score based on match quality
+- Unified interface for multiple music streaming services
+- Track search across all platforms
+- AI-powered music recommendations based on text input
+- Playback control (play, pause, skip)
+- Current track information
+- Mood and genre detection
+- Authentication handling for each service
 
-### Supported Services
-- **Apple Music**
-  - Full authentication with JWT
-  - Track search and recommendations
-  - Playback control
-  - Current track information
+## Prerequisites
 
-- **SoundCloud**
-  - OAuth2 authentication
-  - Track search and recommendations
-  - Direct streaming links
-  - Artist information
+Before you begin, ensure you have:
 
-## Getting Started
+1. Node.js (v14 or later)
+2. npm or yarn
+3. Developer accounts for the services you want to use:
+   - [Spotify Developer Account](https://developer.spotify.com/dashboard)
+   - [Apple Developer Account](https://developer.apple.com/programs/)
+   - [SoundCloud Developer Account](https://developers.soundcloud.com/)
 
-1. Clone the repository
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/vibify.git
+cd vibify
+```
+
 2. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+# or
+yarn install
+```
 
-3. Create a `.env` file with the following credentials:
-   ```
-   # Apple Music
-   VITE_APPLE_MUSIC_DEVELOPER_TOKEN=your_developer_token
-   VITE_APPLE_MUSIC_TEAM_ID=your_team_id
-   VITE_APPLE_MUSIC_KEY_ID=your_key_id
-   VITE_APPLE_MUSIC_PRIVATE_KEY=your_private_key
+3. Create a `.env` file in the root directory with your API credentials:
+```env
+# Spotify Configuration
+VITE_SPOTIFY_CLIENT_ID=your_spotify_client_id
+VITE_SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+VITE_SPOTIFY_REDIRECT_URI=http://localhost:3000/callback
 
-   # SoundCloud
-   VITE_SOUNDCLOUD_CLIENT_ID=your_client_id
-   VITE_SOUNDCLOUD_CLIENT_SECRET=your_client_secret
-   VITE_SOUNDCLOUD_REDIRECT_URI=http://localhost:3000/callback
-   ```
+# Apple Music Configuration
+VITE_APPLE_MUSIC_TEAM_ID=your_team_id
+VITE_APPLE_MUSIC_KEY_ID=your_key_id
+VITE_APPLE_MUSIC_PRIVATE_KEY=your_private_key
+VITE_APPLE_MUSIC_DEVELOPER_TOKEN=your_developer_token
 
-4. Start the development server:
-   ```bash
-   npm run dev
-   ```
+# SoundCloud Configuration
+VITE_SOUNDCLOUD_CLIENT_ID=your_soundcloud_client_id
+VITE_SOUNDCLOUD_CLIENT_SECRET=your_soundcloud_client_secret
+VITE_SOUNDCLOUD_REDIRECT_URI=http://localhost:3000/soundcloud-callback
+```
 
 ## Usage
 
-1. Enter a natural language description of the music you're looking for
-2. The system will analyze your input and search across both Apple Music and SoundCloud
-3. Results will be displayed with confidence scores and detailed information
-4. Click on any track to listen on the respective platform
+### Initialize the Music Service Factory
 
-## Examples
+```typescript
+import { MusicServiceFactory, ServiceType } from './lib/music-service-factory';
 
-Try these search queries:
-- "happy pop music for a party"
-- "sad rock songs about heartbreak"
-- "upbeat electronic music for working out"
-- "chill acoustic songs for studying"
-- "epic orchestral music for gaming"
-
-## Development
-
-### Running Tests
-```bash
-npm test
+const factory = MusicServiceFactory.getInstance();
 ```
 
-### Building for Production
-```bash
-npm run build
+### Authentication
+
+```typescript
+// Get a specific service
+const spotifyService = factory.getService('spotify');
+
+// Check if authenticated
+if (!spotifyService.isAuthenticated()) {
+  // Get login URL
+  const loginUrl = spotifyService.initiateLogin();
+  // Redirect user to loginUrl
+}
+
+// Handle callback after authentication
+await spotifyService.handleCallback(code);
 ```
+
+### Search Tracks
+
+```typescript
+// Search on a specific service
+const tracks = await spotifyService.searchTracks('your search query');
+
+// Search across all authenticated services
+const allResults = await factory.searchAllServices('your search query');
+```
+
+### Get Recommendations
+
+```typescript
+// Get recommendations based on text input
+const recommendations = await spotifyService.getRecommendationsFromText(
+  'I want some upbeat pop music for a party'
+);
+
+// Get recommendations from all services
+const allRecommendations = await factory.getRecommendationsFromAllServices(
+  'I want some relaxing jazz for studying'
+);
+```
+
+### Playback Control
+
+```typescript
+// Get current track
+const currentTrack = await spotifyService.getCurrentTrack();
+
+// Control playback
+await spotifyService.play();
+await spotifyService.pause();
+await spotifyService.skip();
+```
+
+## Service-Specific Setup
+
+### Spotify Setup
+1. Create a new application in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+2. Add `http://localhost:3000/callback` to the Redirect URIs
+3. Copy the Client ID and Client Secret to your `.env` file
+
+### Apple Music Setup
+1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/)
+2. Create a MusicKit identifier
+3. Generate a private key
+4. Add your Team ID, Key ID, and Private Key to your `.env` file
+5. Generate a Developer Token and add it to your `.env` file
+
+### SoundCloud Setup
+1. Register your application at [SoundCloud for Developers](https://developers.soundcloud.com/)
+2. Add `http://localhost:3000/soundcloud-callback` to the Redirect URIs
+3. Copy the Client ID and Client Secret to your `.env` file
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Spotify Web API
+- Apple Music API
+- SoundCloud API
+- All the contributors who have helped with this project
