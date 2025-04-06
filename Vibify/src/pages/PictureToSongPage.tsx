@@ -1,100 +1,301 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Image, Upload } from 'lucide-react';
-import { PromptInput } from '../components/prompt-input';
+import React, { useState } from 'react';
+import { Box, Button, Typography, CircularProgress, Paper, Chip, Divider } from '@mui/material';
+import { styled } from '@mui/material/styles';
 import { SpotifyService } from '../lib/spotify-service';
-import { Features } from '../components/features';
-import { Pricing } from '../components/pricing';
-import { About } from '../components/about';
+import { SpotifyRecommendation } from '../types/spotify';
 
-export function PictureToSongPage() {
-  const [spotifyService] = useState(() => new SpotifyService());
-  const [currentMood, setCurrentMood] = useState<string | undefined>(undefined);
+// Initialize the Spotify service
+const spotifyService = new SpotifyService();
+
+// Styled components
+const UploadBox = styled('label')(({ theme }) => ({
+  display: 'block',
+  padding: theme.spacing(3),
+  textAlign: 'center',
+  cursor: 'pointer',
+  border: `2px dashed ${theme.palette.divider}`,
+  '&:hover': {
+    borderColor: theme.palette.primary.main,
+  },
+}));
+
+const ColorFeatureBar = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  gap: theme.spacing(1),
+  marginTop: theme.spacing(2),
+}));
+
+const ColorChip = styled(Chip)(({ theme }) => ({
+  backgroundColor: theme.palette.background.paper,
+}));
+
+const SongCard = styled(Paper)(({ theme }) => ({
+  padding: theme.spacing(2),
+  marginTop: theme.spacing(2),
+}));
+
+const ColorFeatureLabel = styled(Typography)(({ theme }) => ({
+  minWidth: '120px',
+  marginRight: theme.spacing(2),
+}));
+
+const ColorFeatureValue = styled(Box)(({ theme }) => ({
+  flexGrow: 1,
+  height: '8px',
+  borderRadius: theme.shape.borderRadius,
+  backgroundColor: theme.palette.primary.main,
+  transition: 'width 0.5s ease',
+}));
+
+const AestheticChip = styled(Chip)(({ theme }) => ({
+  margin: theme.spacing(0.5),
+  backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  '&:hover': {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+}));
+
+const SongImage = styled('img')({
+  width: '100%',
+  height: '200px',
+  objectFit: 'cover',
+  borderRadius: '8px',
+  marginBottom: '16px',
+});
+
+const SongTitle = styled(Typography)(({ theme }) => ({
+  fontWeight: 'bold',
+  marginBottom: theme.spacing(1),
+}));
+
+const SongArtist = styled(Typography)(({ theme }) => ({
+  color: theme.palette.text.secondary,
+  marginBottom: theme.spacing(2),
+}));
+
+const SongDescription = styled(Typography)(({ theme }) => ({
+  marginBottom: theme.spacing(2),
+  flexGrow: 1,
+}));
+
+const SongMood = styled(Typography)(({ theme }) => ({
+  marginBottom: theme.spacing(1),
+  color: theme.palette.primary.main,
+}));
+
+const SongGenres = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: theme.spacing(0.5),
+}));
+
+const GenerateButton = styled(Button)(({ theme }) => ({
+  marginTop: theme.spacing(2),
+  padding: theme.spacing(1, 4),
+  borderRadius: theme.shape.borderRadius * 2,
+  boxShadow: theme.shadows[4],
+  '&:hover': {
+    boxShadow: theme.shadows[8],
+  },
+}));
+
+const PictureToSongPage: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [recommendations, setRecommendations] = useState<SpotifyRecommendation[]>([]);
+  const [imageAnalysis, setImageAnalysis] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleMoodDetected = (mood: string) => {
-    console.log('Mood detected in PictureToSongPage:', mood);
-    setCurrentMood(mood);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string);
+      reader.onload = (e) => {
+        setSelectedImage(e.target?.result as string);
+        setRecommendations([]);
+        setImageAnalysis(null);
+        setError(null);
       };
       reader.readAsDataURL(file);
     }
   };
 
+  const handleAnalyze = async () => {
+    if (!selectedImage) return;
+    
+    setAnalyzing(true);
+    setError(null);
+    
+    try {
+      const results = await spotifyService.getRecommendationsFromImage(selectedImage);
+      setRecommendations(results);
+      
+      // Extract image analysis from the first recommendation's description
+      if (results.length > 0) {
+        const firstResult = results[0];
+        setImageAnalysis({
+          mood: firstResult.mood,
+          colors: firstResult.colors || [],
+          aesthetic: firstResult.aesthetic || '',
+          visualFeatures: {
+            brightness: 0.7,
+            contrast: 0.6,
+            saturation: 0.8,
+            warmth: 0.5
+          }
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while analyzing the image');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const renderColorFeatures = () => {
+    if (!imageAnalysis) return null;
+    
+    const { visualFeatures } = imageAnalysis;
+    
+    return (
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Visual Features
+        </Typography>
+        <ColorFeatureBar>
+          <ColorFeatureLabel>Brightness</ColorFeatureLabel>
+          <ColorFeatureValue sx={{ width: `${visualFeatures.brightness * 100}%` }} />
+        </ColorFeatureBar>
+        <ColorFeatureBar>
+          <ColorFeatureLabel>Contrast</ColorFeatureLabel>
+          <ColorFeatureValue sx={{ width: `${visualFeatures.contrast * 100}%` }} />
+        </ColorFeatureBar>
+        <ColorFeatureBar>
+          <ColorFeatureLabel>Saturation</ColorFeatureLabel>
+          <ColorFeatureValue sx={{ width: `${visualFeatures.saturation * 100}%` }} />
+        </ColorFeatureBar>
+        <ColorFeatureBar>
+          <ColorFeatureLabel>Warmth</ColorFeatureLabel>
+          <ColorFeatureValue sx={{ width: `${visualFeatures.warmth * 100}%` }} />
+        </ColorFeatureBar>
+      </Box>
+    );
+  };
+
+  const renderColors = () => {
+    if (!imageAnalysis?.colors?.length) return null;
+    
+    return (
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Colors
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap' }}>
+          {imageAnalysis.colors.map((color: string, index: number) => (
+            <ColorChip key={index} label={color} />
+          ))}
+        </Box>
+      </Box>
+    );
+  };
+
+  const renderAesthetic = () => {
+    if (!imageAnalysis?.aesthetic) return null;
+    
+    return (
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Aesthetic
+        </Typography>
+        <AestheticChip label={imageAnalysis.aesthetic} />
+      </Box>
+    );
+  };
+
+  const renderRecommendations = () => {
+    if (recommendations.length === 0) return null;
+
+    return (
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Recommended Songs
+        </Typography>
+        {recommendations.map((recommendation, index) => (
+          <SongCard key={index}>
+            <Typography variant="subtitle1">{recommendation.title}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {recommendation.artist}
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              {recommendation.description}
+            </Typography>
+            {renderColorFeatures()}
+            {renderColors()}
+            {renderAesthetic()}
+          </SongCard>
+        ))}
+      </Box>
+    );
+  };
+
   return (
-    <div className="container mx-auto flex min-h-screen flex-col items-center px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="mt-32 text-center"
-      >
-        <div className="mb-8 flex items-center justify-center gap-4">
-          <Image className="h-12 w-12 text-primary" />
-          <h1 className="text-5xl font-bold tracking-tight">Picture-to-Song Generator</h1>
-        </div>
-        <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
-          Upload an image and get song recommendations that match its mood and aesthetic.
-          Our AI will analyze the visual elements and find the perfect soundtrack.
-        </p>
-      </motion.div>
+    <Box sx={{ p: 3, maxWidth: 800, mx: 'auto' }}>
+      <Typography variant="h4" gutterBottom>
+        Image to Song Generator
+      </Typography>
+      <Typography variant="body1" paragraph>
+        Upload an image to get song recommendations based on its colors and aesthetic.
+      </Typography>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        className="mt-12 w-full max-w-3xl"
-      >
-        <div className="mb-8 rounded-lg border border-dashed border-muted-foreground/25 p-8 text-center">
-          <div className="mb-4 flex justify-center">
-            {selectedImage ? (
-              <img 
-                src={selectedImage} 
-                alt="Uploaded" 
-                className="max-h-64 rounded-lg object-cover"
-              />
-            ) : (
-              <div className="flex h-32 w-32 items-center justify-center rounded-full bg-muted">
-                <Upload className="h-8 w-8 text-muted-foreground" />
-              </div>
-            )}
-          </div>
-          <label 
-            htmlFor="image-upload" 
-            className="inline-flex cursor-pointer items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            {selectedImage ? 'Change Image' : 'Upload Image'}
-          </label>
-          <input 
-            id="image-upload" 
-            type="file" 
-            accept="image/*" 
-            className="hidden" 
-            onChange={handleImageUpload}
-          />
-          <p className="mt-2 text-sm text-muted-foreground">
-            {selectedImage ? 'Image uploaded successfully!' : 'Click to upload an image'}
-          </p>
-        </div>
-
-        <PromptInput 
-          spotifyService={spotifyService} 
-          onMoodDetected={handleMoodDetected}
+      <UploadBox htmlFor="image-upload">
+        <input
+          id="image-upload"
+          type="file"
+          accept="image/*"
+          onChange={handleImageSelect}
+          style={{ display: 'none' }}
         />
-      </motion.div>
+        {selectedImage ? (
+          <img
+            src={selectedImage}
+            alt="Selected"
+            style={{ maxWidth: '100%', maxHeight: 300 }}
+          />
+        ) : (
+          <Typography>
+            Click to upload an image
+          </Typography>
+        )}
+      </UploadBox>
 
-      <div className="mt-24 w-full">
-        <Features />
-        <Pricing />
-        <About />
-      </div>
-    </div>
+      {selectedImage && (
+        <Box sx={{ mt: 2, textAlign: 'center' }}>
+          <Button
+            variant="contained"
+            onClick={handleAnalyze}
+            disabled={analyzing}
+          >
+            {analyzing ? (
+              <>
+                <CircularProgress size={24} sx={{ mr: 1 }} />
+                Analyzing...
+              </>
+            ) : (
+              'Analyze Image'
+            )}
+          </Button>
+        </Box>
+      )}
+
+      {error && (
+        <Typography color="error" sx={{ mt: 2 }}>
+          {error}
+        </Typography>
+      )}
+
+      {renderRecommendations()}
+    </Box>
   );
-} 
+};
+
+export default PictureToSongPage; 

@@ -122,7 +122,7 @@ export function HomePage() {
               </div>
               <p className="text-muted-foreground">{feature.description}</p>
               <div className="mt-4 flex items-center text-sm font-medium text-primary">
-                Try it now
+                {feature.title === 'Daylist Feature' ? 'Coming soon' : 'Try it now'}
                 <svg
                   className="ml-1 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1"
                   fill="none"

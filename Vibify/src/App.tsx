@@ -14,7 +14,7 @@ import { HomePage } from './pages/HomePage';
 import { SmartRadioPage } from './pages/SmartRadioPage';
 import { SongGeneratorPage } from './pages/SongGeneratorPage';
 import { PlaylistGeneratorPage } from './pages/PlaylistGeneratorPage';
-import { PictureToSongPage } from './pages/PictureToSongPage';
+import PictureToSongPage from './pages/PictureToSongPage';
 import { DaylistPage } from './pages/DaylistPage';
 import { ThemeProvider } from './contexts/ThemeContext';
 import './App.css';
