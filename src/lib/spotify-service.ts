@@ -1520,8 +1520,8 @@ export class SpotifyService {
     try {
       // Create a new playlist
       const playlistId = await this.createPlaylist(
-        'Vibify Smart Radio Playlist',
-        'Playlist created by Vibify Smart Radio based on your preferences'
+        'The Jam Engine Smart Radio Playlist',
+        'Playlist created by The Jam Engine Smart Radio based on your preferences'
       );
       
       // Get track URIs from recommendations

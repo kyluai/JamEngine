@@ -30,7 +30,7 @@ export function Navbar({ isAuthenticated, onLogin }: NavbarProps) {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
           <Music2 className="h-8 w-8 text-primary" />
-          <span className="text-xl font-bold">Vibify</span>
+          <span className="text-xl font-bold">The Jam Engine</span>
         </Link>
 
         <div className="hidden md:flex md:items-center md:gap-6">
