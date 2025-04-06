@@ -1,7 +1,0 @@
-* [33m9725861[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m chore: update application name to The Jam Engine and remove unused services
-* [33mfa1fd6c[m feat: add Apple Music and SoundCloud integration, remove YouTube Music support
-* [33m13d3d6a[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Updated recommendation apis
-* [33mf1eaabb[m Updated recommendation api
-* [33mb5504c4[m updated api
-* [33mfd82d07[m Initial commit: Implement AI-powered song recommendation feature
-* [33m832aa11[m Initial commit
