@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Music2 } from 'lucide-react';
+import { JamEngineLogo } from './JamEngineLogo';
 
 interface LoginProps {
   onLogin: () => void;
@@ -20,7 +20,7 @@ export const Login = ({ onLogin }: LoginProps) => {
           transition={{ delay: 0.2 }}
           className="login-icon"
         >
-          <Music2 size={64} />
+          <JamEngineLogo size={64} className="text-primary" />
         </motion.div>
         
         <motion.h1
@@ -29,7 +29,7 @@ export const Login = ({ onLogin }: LoginProps) => {
           transition={{ delay: 0.3 }}
           className="login-title"
         >
-          Welcome to Vibify
+          Welcome to The Jam Engine
         </motion.h1>
         
         <motion.p

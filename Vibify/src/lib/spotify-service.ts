@@ -197,44 +197,179 @@ export class SpotifyService {
       const cleanQuery = this.formatSearchQuery(query);
       console.log('Formatted search query:', cleanQuery);
       
-      // Use the search endpoint with parameters that match Spotify's search behavior
-      const response = await axios.get('https://api.spotify.com/v1/search', {
+      // First, search for tracks to use as seeds
+      const searchResponse = await axios.get('https://api.spotify.com/v1/search', {
         headers: {
           'Authorization': `Bearer ${token}`
         },
         params: {
           q: cleanQuery,
           type: 'track',
-          limit: 20,
-          market: 'US',
-          include_external: 'audio'
+          limit: 5,
+          market: 'US'
         }
       });
       
-      if (!response.data.tracks || response.data.tracks.items.length === 0) {
+      if (!searchResponse.data.tracks || searchResponse.data.tracks.items.length === 0) {
         console.log('No tracks found with query:', cleanQuery);
         return [];
       }
+
+      // Get seed tracks
+      const seedTracks = searchResponse.data.tracks.items.map((track: any) => track.id).slice(0, 5);
+      console.log('Seed tracks:', seedTracks);
+
+      // Use recommendations API to get similar tracks
+      const recommendationsResponse = await axios.get('https://api.spotify.com/v1/recommendations', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params: {
+          seed_tracks: seedTracks.join(','),
+          limit: 20,
+          market: 'US',
+          min_popularity: 20
+        }
+      });
+
+      if (!recommendationsResponse.data.tracks || recommendationsResponse.data.tracks.length === 0) {
+        // If no recommendations, return the search results
+        return searchResponse.data.tracks.items.map((track: any) => ({
+          id: track.id,
+          name: track.name,
+          artist: track.artists[0].name,
+          album: track.album.name,
+          images: track.album.images,
+          preview_url: track.preview_url,
+          external_url: track.external_urls.spotify
+        }));
+      }
+
+      // Combine the first search result with recommendations
+      const firstTrack = searchResponse.data.tracks.items[0];
+      const recommendations = recommendationsResponse.data.tracks;
       
-      console.log(`Found ${response.data.tracks.items.length} tracks for query: ${cleanQuery}`);
+      // Create final track list with the first search result and recommendations
+      const tracks = [
+        {
+          id: firstTrack.id,
+          name: firstTrack.name,
+          artist: firstTrack.artists[0].name,
+          album: firstTrack.album.name,
+          images: firstTrack.album.images,
+          preview_url: firstTrack.preview_url,
+          external_url: firstTrack.external_urls.spotify
+        },
+        ...recommendations.map((track: any) => ({
+          id: track.id,
+          name: track.name,
+          artist: track.artists[0].name,
+          album: track.album.name,
+          images: track.album.images,
+          preview_url: track.preview_url,
+          external_url: track.external_urls.spotify
+        }))
+      ];
       
-      // Transform the tracks to our format
-      return response.data.tracks.items.map((track: any) => ({
-        id: track.id,
-        name: track.name,
-        artist: track.artists[0].name,
-        album: track.album.name,
-        images: track.album.images,
-        preview_url: track.preview_url,
-        external_url: track.external_urls.spotify
-      }));
+      console.log(`Found ${tracks.length} tracks for query: ${cleanQuery}`);
+      return tracks;
     } catch (error) {
       console.error('Error searching tracks:', error);
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        this.initiateLogin();
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          // Token expired, initiate new login
+          this.initiateLogin();
+        } else if (error.response?.status === 404) {
+          // Log more details about the failed request
+          console.error('404 Error details:', {
+            url: error.config?.url,
+            params: error.config?.params,
+            headers: error.config?.headers
+          });
+        }
       }
       throw error;
     }
+  }
+  
+  private isMoodBasedQuery(query: string): boolean {
+    const moodKeywords = [
+      'happy', 'sad', 'energetic', 'calm', 'angry', 'romantic', 'nostalgic', 'peaceful', 
+      'focused', 'party', 'chill', 'inspirational', 'cinematic', 'urban', 'nature', 
+      'dreamy', 'introspective', 'relaxed', 'upbeat', 'melancholic', 'uplifting'
+    ];
+    
+    const words = query.toLowerCase().split(/\s+/);
+    return words.some(word => moodKeywords.includes(word));
+  }
+  
+  private extractMoodFromQuery(query: string): string {
+    const moodKeywords = [
+      'happy', 'sad', 'energetic', 'calm', 'angry', 'romantic', 'nostalgic', 'peaceful', 
+      'focused', 'party', 'chill', 'inspirational', 'cinematic', 'urban', 'nature', 
+      'dreamy', 'introspective', 'relaxed', 'upbeat', 'melancholic', 'uplifting'
+    ];
+    
+    const words = query.toLowerCase().split(/\s+/);
+    for (const word of words) {
+      if (moodKeywords.includes(word)) {
+        return word;
+      }
+    }
+    
+    return '';
+  }
+  
+  private getAudioFeaturesForMood(mood: string): { energy: number, valence: number, danceability: number, tempo: number } {
+    const moodFeatures: { [key: string]: { energy: number, valence: number, danceability: number, tempo: number } } = {
+      'happy': { energy: 0.7, valence: 0.8, danceability: 0.7, tempo: 120 },
+      'sad': { energy: 0.3, valence: 0.2, danceability: 0.3, tempo: 80 },
+      'energetic': { energy: 0.9, valence: 0.7, danceability: 0.8, tempo: 130 },
+      'calm': { energy: 0.3, valence: 0.6, danceability: 0.4, tempo: 90 },
+      'angry': { energy: 0.9, valence: 0.3, danceability: 0.6, tempo: 140 },
+      'romantic': { energy: 0.5, valence: 0.7, danceability: 0.5, tempo: 100 },
+      'nostalgic': { energy: 0.4, valence: 0.5, danceability: 0.5, tempo: 100 },
+      'peaceful': { energy: 0.2, valence: 0.7, danceability: 0.3, tempo: 80 },
+      'focused': { energy: 0.4, valence: 0.5, danceability: 0.4, tempo: 100 },
+      'party': { energy: 0.9, valence: 0.8, danceability: 0.9, tempo: 130 },
+      'chill': { energy: 0.3, valence: 0.6, danceability: 0.5, tempo: 90 },
+      'inspirational': { energy: 0.7, valence: 0.8, danceability: 0.6, tempo: 110 },
+      'cinematic': { energy: 0.6, valence: 0.5, danceability: 0.4, tempo: 100 },
+      'urban': { energy: 0.7, valence: 0.6, danceability: 0.7, tempo: 110 },
+      'nature': { energy: 0.4, valence: 0.7, danceability: 0.4, tempo: 90 },
+      'dreamy': { energy: 0.3, valence: 0.6, danceability: 0.4, tempo: 90 },
+      'introspective': { energy: 0.3, valence: 0.4, danceability: 0.3, tempo: 80 },
+      'relaxed': { energy: 0.3, valence: 0.6, danceability: 0.4, tempo: 90 },
+      'upbeat': { energy: 0.8, valence: 0.8, danceability: 0.8, tempo: 120 },
+      'melancholic': { energy: 0.3, valence: 0.3, danceability: 0.3, tempo: 80 },
+      'uplifting': { energy: 0.8, valence: 0.9, danceability: 0.7, tempo: 120 }
+    };
+    
+    return moodFeatures[mood] || { energy: 0.5, valence: 0.5, danceability: 0.5, tempo: 100 };
+  }
+  
+  private getGenresForMood(mood: string): string[] {
+    const moodGenres: { [key: string]: string[] } = {
+      'happy': ['pop', 'dance', 'disco', 'funk', 'soul', 'r-n-b'],
+      'sad': ['acoustic', 'piano', 'folk', 'indie', 'alternative'],
+      'energetic': ['rock', 'metal', 'punk', 'electronic', 'dance'],
+      'calm': ['ambient', 'classical', 'jazz', 'chill', 'meditation'],
+      'angry': ['metal', 'rock', 'punk', 'grunge', 'industrial'],
+      'romantic': ['r-n-b', 'soul', 'jazz', 'pop', 'indie'],
+      'nostalgic': ['classic', 'rock', 'pop', 'folk', 'jazz'],
+      'peaceful': ['ambient', 'classical', 'meditation', 'chill', 'jazz'],
+      'focused': ['ambient', 'classical', 'electronic', 'chill', 'lofi', 'instrumental'],
+      'party': ['dance', 'pop', 'electronic', 'hip-hop', 'house', 'edm'],
+      'chill': ['lofi', 'chill', 'ambient', 'jazz', 'indie'],
+      'inspirational': ['pop', 'rock', 'indie', 'electronic', 'ambient'],
+      'cinematic': ['classical', 'ambient', 'electronic', 'orchestral', 'soundtrack'],
+      'urban': ['hip-hop', 'r-n-b', 'soul', 'electronic', 'pop'],
+      'nature': ['ambient', 'folk', 'acoustic', 'world', 'new-age'],
+      'dreamy': ['ambient', 'electronic', 'chill', 'indie', 'dream-pop'],
+      'introspective': ['ambient', 'acoustic', 'piano', 'indie', 'folk']
+    };
+    
+    return moodGenres[mood] || ['pop', 'rock', 'hip-hop', 'electronic', 'dance'];
   }
 
   private formatSearchQuery(text: string): string {
@@ -245,34 +380,60 @@ export class SpotifyService {
     const stopWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'];
     const filteredWords = words.filter(word => !stopWords.includes(word) && word.length > 2);
     
-    // Prioritize mood words and activity words
-    const moodWords = ['happy', 'sad', 'energetic', 'calm', 'angry', 'romantic', 'nostalgic', 'peaceful', 
-                       'focused', 'party', 'chill', 'inspirational', 'cinematic', 'urban', 'nature', 
-                       'dreamy', 'introspective', 'relaxed', 'upbeat', 'melancholic', 'uplifting'];
+    // Define genre and style keywords
+    const genreKeywords = {
+      'barbecue': ['country', 'folk', 'americana'],
+      'party': ['pop', 'dance', 'electronic'],
+      'workout': ['rock', 'hip hop', 'electronic'],
+      'meditation': ['ambient', 'classical', 'new age'],
+      'study': ['classical', 'jazz', 'ambient'],
+      'family': ['pop', 'folk', 'children'],
+      'outdoor': ['folk', 'country', 'acoustic'],
+      'dinner': ['jazz', 'classical', 'ambient'],
+      'morning': ['pop', 'folk', 'acoustic'],
+      'night': ['jazz', 'ambient', 'electronic'],
+      'summer': ['pop', 'rock', 'reggae'],
+      'winter': ['folk', 'acoustic', 'indie'],
+      'beach': ['reggae', 'pop', 'tropical'],
+      'road': ['rock', 'country', 'folk'],
+      'garden': ['folk', 'acoustic', 'classical'],
+      'cafe': ['jazz', 'indie', 'acoustic'],
+      'office': ['ambient', 'classical', 'jazz'],
+      'gym': ['rock', 'hip hop', 'electronic'],
+      'yoga': ['ambient', 'new age', 'classical']
+    };
     
-    const activityWords = ['study', 'work', 'exercise', 'meditate', 'run', 'walk', 'drive', 'travel', 
-                           'read', 'write', 'code', 'paint', 'draw', 'dance', 'sing', 'play'];
+    // Check for scenario matches
+    let genreMatch = '';
+    for (const [scenario, genres] of Object.entries(genreKeywords)) {
+      if (filteredWords.includes(scenario)) {
+        genreMatch = genres[0]; // Use the first genre as primary
+        break;
+      }
+    }
     
-    // Sort words by priority (mood and activity words first)
-    const sortedWords = [...filteredWords].sort((a, b) => {
-      const aIsMood = moodWords.some(mood => a.includes(mood));
-      const bIsMood = moodWords.some(mood => b.includes(mood));
-      if (aIsMood && !bIsMood) return -1;
-      if (!aIsMood && bIsMood) return 1;
-      
-      const aIsActivity = activityWords.some(activity => a.includes(activity));
-      const bIsActivity = activityWords.some(activity => b.includes(activity));
-      if (aIsActivity && !bIsActivity) return -1;
-      if (!aIsActivity && bIsActivity) return 1;
-      
-      return 0;
-    });
+    // Build the search query
+    let searchQuery = '';
     
-    // Take the top 5 most relevant words
-    const relevantWords = sortedWords.slice(0, 5);
+    // Add genre if matched
+    if (genreMatch) {
+      searchQuery += `genre:${genreMatch} `;
+    }
     
-    // Join with spaces to create the search query
-    return relevantWords.join(' ');
+    // Add the original keywords, prioritizing the most relevant ones
+    const relevantWords = filteredWords
+      .filter(word => !Object.keys(genreKeywords).includes(word)) // Remove scenario words that were used for genre
+      .slice(0, 3); // Take top 3 most relevant words
+    
+    searchQuery += relevantWords.join(' ');
+    
+    // If no genre match was found, add some default parameters to improve results
+    if (!genreMatch) {
+      searchQuery += ' year:2000-2024'; // Focus on more recent music
+    }
+    
+    console.log('Formatted search query:', searchQuery);
+    return searchQuery.trim();
   }
 
   private async getRecommendations(seedTracks: string[], mood: string): Promise<SpotifyTrack[]> {
@@ -291,7 +452,7 @@ export class SpotifyService {
       const danceability = this.getDanceabilityFromMood(mood);
       
       // Get genres for the mood
-      const genres = this.getGenresForMood(mood, ['pop', 'rock', 'electronic', 'dance']);
+      const genres = this.getGenresForMood(mood);
       
       // Create a query string with the seed tracks
       const seedTracksQuery = seedTracks.join(',');
@@ -300,6 +461,13 @@ export class SpotifyService {
       const randomEnergy = energy + (Math.random() * 0.2 - 0.1); // ±0.1 variation
       const randomValence = valence + (Math.random() * 0.2 - 0.1); // ±0.1 variation
       const randomDanceability = danceability + (Math.random() * 0.2 - 0.1); // ±0.1 variation
+      
+      console.log('Making recommendations API call with params:', {
+        seed_tracks: seedTracksQuery,
+        target_energy: randomEnergy,
+        target_valence: randomValence,
+        target_danceability: randomDanceability
+      });
       
       // Use the recommendations endpoint
       const response = await axios.get('https://api.spotify.com/v1/recommendations', {
@@ -431,34 +599,6 @@ export class SpotifyService {
       'neutral': 0.5
     };
     return moodDanceabilityMap[mood.toLowerCase()] || 0.5;
-  }
-
-  private getGenresForMood(mood: string, availableGenres: string[]): string[] {
-    const moodGenreMap: { [key: string]: string[] } = {
-      'happy': ['pop', 'dance', 'disco', 'funk', 'soul', 'r-n-b'],
-      'sad': ['acoustic', 'piano', 'folk', 'indie', 'alternative'],
-      'energetic': ['rock', 'metal', 'punk', 'electronic', 'dance'],
-      'calm': ['ambient', 'classical', 'jazz', 'chill', 'meditation'],
-      'angry': ['metal', 'rock', 'punk', 'grunge', 'industrial'],
-      'romantic': ['r-n-b', 'soul', 'jazz', 'pop', 'indie'],
-      'nostalgic': ['classic', 'rock', 'pop', 'folk', 'jazz'],
-      'peaceful': ['ambient', 'classical', 'meditation', 'chill', 'jazz'],
-      'focused': ['ambient', 'classical', 'electronic', 'chill', 'lofi', 'instrumental'],
-      'party': ['dance', 'pop', 'electronic', 'hip-hop', 'house', 'edm'],
-      'chill': ['lofi', 'chill', 'ambient', 'jazz', 'indie'],
-      'inspirational': ['pop', 'rock', 'indie', 'electronic', 'ambient'],
-      'cinematic': ['classical', 'ambient', 'electronic', 'orchestral', 'soundtrack'],
-      'urban': ['hip-hop', 'r-n-b', 'soul', 'electronic', 'pop'],
-      'nature': ['ambient', 'folk', 'acoustic', 'world', 'new-age'],
-      'dreamy': ['ambient', 'electronic', 'chill', 'indie', 'dream-pop'],
-      'introspective': ['ambient', 'acoustic', 'piano', 'indie', 'folk']
-    };
-
-    const defaultGenres = ['pop', 'rock', 'hip-hop', 'electronic', 'dance'];
-    const moodGenres = moodGenreMap[mood.toLowerCase()] || defaultGenres;
-    
-    // Filter to only include available genres
-    return moodGenres.filter(genre => availableGenres.includes(genre));
   }
 
   private determineInputType(text: string): 'mood' | 'scenario' | 'mixed' {

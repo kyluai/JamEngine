@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion';
-import { Music2, Radio, Music, ListMusic, Image, Calendar, ArrowRight, Settings } from 'lucide-react';
+import { Radio, Music, ListMusic, Image, Calendar, ArrowRight, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { SettingsModal } from '../components/settings-modal';
+import { JamEngineLogo } from '../components/JamEngineLogo';
 
 export function HomePage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -68,8 +69,8 @@ export function HomePage() {
         className="mt-32 text-center"
       >
         <div className="mb-8 flex items-center justify-center gap-4">
-          <Music2 className="h-12 w-12 text-primary" />
-          <h1 className="text-5xl font-bold tracking-tight">Vibify</h1>
+          <JamEngineLogo size={48} className="text-primary" />
+          <h1 className="text-5xl font-bold tracking-tight">The Jam Engine</h1>
         </div>
         <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
           Discover the perfect soundtrack for every moment with AI-powered music recommendations.
@@ -82,9 +83,9 @@ export function HomePage() {
         transition={{ duration: 0.5, delay: 0.2 }}
         className="mt-12 w-full max-w-3xl rounded-xl border border-muted/20 bg-background/50 p-8 backdrop-blur-sm"
       >
-        <h2 className="mb-4 text-2xl font-semibold">What is Vibify?</h2>
+        <h2 className="mb-4 text-2xl font-semibold">What is The Jam Engine?</h2>
         <p className="mb-6 text-muted-foreground">
-          Vibify is your AI-powered music companion that understands your mood, activities, and preferences to recommend the perfect songs. Whether you're looking for a specific vibe, creating a playlist for an occasion, or just want to discover new music, Vibify has you covered.
+          The Jam Engine is your AI-powered music companion that understands your mood, activities, and preferences to recommend the perfect songs. Whether you're looking for a specific vibe, creating a playlist for an occasion, or just want to discover new music, The Jam Engine has you covered.
         </p>
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

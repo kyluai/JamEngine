@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { Headphones, Heart, Coffee, Music2 } from 'lucide-react';
+import { Headphones, Heart, Coffee } from 'lucide-react';
+import { JamEngineLogo } from './JamEngineLogo';
 
 export function About() {
   return (
@@ -13,8 +14,8 @@ export function About() {
             className="text-center"
           >
             <div className="mb-8 flex items-center justify-center gap-4">
-              <Music2 className="h-12 w-12 text-primary" />
-              <h2 className="text-3xl font-bold">The Story Behind Vibify</h2>
+              <JamEngineLogo size={48} className="text-primary" />
+              <h2 className="text-3xl font-bold">The Story Behind The Jam Engine</h2>
             </div>
           </motion.div>
 
@@ -32,7 +33,7 @@ export function About() {
               <p className="mt-4 text-lg text-muted-foreground">
                 Hey! I'm just a regular college student who loves music and tech. Between late-night study sessions
                 and coffee runs, I realized how music has this amazing power to transform any moment into something
-                special. That's when Vibify was born.
+                special. That's when The Jam Engine was born.
               </p>
             </div>
 
@@ -43,7 +44,7 @@ export function About() {
               </div>
               <p className="mt-4 text-lg text-muted-foreground">
                 Whether you're grinding through finals week, chilling at a rooftop party, or just need that perfect
-                background music for your coding session – I get it. Vibify is all about capturing those specific
+                background music for your coding session – I get it. The Jam Engine is all about capturing those specific
                 moments and turning them into the perfect soundtrack.
               </p>
             </div>

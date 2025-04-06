@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sun, Moon, Monitor, Volume2, Bell, Check } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -8,34 +9,23 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const { theme, setTheme } = useTheme();
   const [volume, setVolume] = useState(50);
   const [notifications, setNotifications] = useState(true);
   const [savedMessage, setSavedMessage] = useState(false);
 
   // Load saved settings from localStorage
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | 'system' | null;
     const savedVolume = localStorage.getItem('volume');
     const savedNotifications = localStorage.getItem('notifications');
 
-    if (savedTheme) setTheme(savedTheme);
     if (savedVolume) setVolume(parseInt(savedVolume));
     if (savedNotifications) setNotifications(savedNotifications === 'true');
   }, []);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
+    console.log('Theme change requested:', newTheme);
     setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    
-    // Apply theme immediately
-    if (newTheme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      document.documentElement.classList.toggle('dark', systemTheme === 'dark');
-    } else {
-      document.documentElement.classList.toggle('dark', newTheme === 'dark');
-    }
-    
     showSavedMessage();
   };
 
