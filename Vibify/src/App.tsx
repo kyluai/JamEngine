@@ -17,7 +17,14 @@ import { PlaylistGeneratorPage } from './pages/PlaylistGeneratorPage';
 import PictureToSongPage from './pages/PictureToSongPage';
 import { DaylistPage } from './pages/DaylistPage';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { useScrollToTop } from './hooks/useScrollToTop';
 import './App.css';
+
+// ScrollToTop component to ensure page scrolls to top on route changes
+function ScrollToTop() {
+  useScrollToTop();
+  return null;
+}
 
 function App() {
   const [spotifyService] = useState(() => new SpotifyService());
@@ -76,6 +83,9 @@ function App() {
       setIsAuthenticated(true);
       // Remove the code from the URL
       window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Redirect to home page after successful login
+      window.location.href = '/';
     } catch (error) {
       console.error('Error handling callback:', error);
       setError('Failed to authenticate with Spotify. Please try again.');
@@ -109,6 +119,7 @@ function App() {
   return (
     <ThemeProvider>
       <Router>
+        <ScrollToTop />
         <div className="min-h-screen bg-background text-foreground">
           <div className="fixed inset-0 bg-[linear-gradient(to_right,#7C3AED,#9F7AEA,#C4B5FD)] opacity-20 animate-gradient-xy blur-[100px]" />
           

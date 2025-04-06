@@ -3,7 +3,8 @@ import { motion } from 'framer-motion';
 import { Search, Music, Sparkles, ChevronDown, ChevronUp, Info, Clock, MapPin, Users, Activity, Headphones } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
-import { SpotifyService, SpotifyRecommendation, MoodAnalysis } from '../lib/spotify-service';
+import { SpotifyService, MoodAnalysis } from '../lib/spotify-service';
+import { SpotifyRecommendation } from '../types/spotify';
 
 interface PromptInputProps {
   spotifyService: SpotifyService;
@@ -35,27 +36,30 @@ export function PromptInput({ spotifyService, onMoodDetected, onRecommendationsR
       // Get recommendations which will also detect the mood internally
       const results = await spotifyService.getRecommendationsFromText(inputText);
       
-      // Extract the mood analysis from the first recommendation if available
-      if (results.length > 0) {
-        if (results[0].moodAnalysis) {
-          setMoodAnalysis(results[0].moodAnalysis);
-        }
-        
+      // Check if we have valid results
+      if (results && results.length > 0) {
         // Extract the mood from the first recommendation if available
         if (onMoodDetected) {
-          onMoodDetected(results[0].mood);
+          onMoodDetected(results[0].mood || '');
         }
-      }
-      
-      setRecommendations(results);
-      
-      // Call the onRecommendationsReceived callback if provided
-      if (onRecommendationsReceived) {
-        onRecommendationsReceived(results, results.length > 0 && results[0].moodAnalysis ? results[0].moodAnalysis : null);
+        
+        setRecommendations(results);
+        
+        // Call the onRecommendationsReceived callback if provided
+        if (onRecommendationsReceived) {
+          onRecommendationsReceived(results, moodAnalysis);
+        }
+      } else {
+        setError('No recommendations found. Please try a different description.');
       }
     } catch (err) {
       console.error('Error getting recommendations:', err);
-      setError(err instanceof Error ? err.message : 'Failed to get recommendations. Please try again.');
+      if (err instanceof Error && err.message.includes('Please log in to Spotify')) {
+        // Handle authentication error
+        setError('Please log in to Spotify to get recommendations.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to get recommendations. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -408,19 +412,7 @@ export function PromptInput({ spotifyService, onMoodDetected, onRecommendationsR
                 />
                 <h3 className="font-semibold">{song.title}</h3>
                 <p className="text-sm text-muted-foreground">{song.artist}</p>
-                <p className="mt-2 text-sm">
-                  <span className="font-medium">Mood:</span> {song.mood}
-                </p>
-                <p className="text-sm">
-                  <span className="font-medium">Description:</span> {song.description}
-                </p>
-                <div className="mt-4 space-y-2">
-                  {song.previewUrl && (
-                    <audio controls className="w-full">
-                      <source src={song.previewUrl} type="audio/mpeg" />
-                      Your browser does not support the audio element.
-                    </audio>
-                  )}
+                <div className="mt-4">
                   <a
                     href={song.spotifyUrl}
                     target="_blank"

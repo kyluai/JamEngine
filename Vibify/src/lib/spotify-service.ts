@@ -198,12 +198,17 @@ export class SpotifyService {
       // Transform the tracks to our format
       return response.data.tracks.items.map((track: any) => ({
         id: track.id,
-        name: track.name,
+        title: track.name,
         artist: track.artists[0].name,
         album: track.album.name,
-        images: track.album.images,
-        preview_url: track.preview_url,
-        external_url: track.external_urls.spotify
+        albumArt: track.album.images[0]?.url || '',
+        imageUrl: track.album.images[0]?.url || '',
+        previewUrl: track.preview_url || '',
+        spotifyUrl: track.external_urls.spotify,
+        description: '',
+        mood: '',
+        genres: [],
+        tempo: 120
       }));
     } catch (error) {
       console.error('Error searching tracks:', error);
@@ -335,62 +340,165 @@ export class SpotifyService {
   /**
    * Gets recommendations based on a search query
    */
-  private async getRecommendations(searchQuery: string): Promise<SpotifyRecommendation[]> {
+  private async getRecommendations(
+    seedTracks: string[],
+    mood: string
+  ): Promise<SpotifyRecommendation[]> {
     try {
-      // In a real implementation, this would call the Spotify API
-      // For now, we'll simulate recommendations based on the search query
+      const token = await this.getAccessToken();
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Get energy, valence, and danceability based on mood
+      const energy = this.getEnergyFromMood(mood);
+      const valence = this.getValenceFromMood(mood);
+      const danceability = this.getDanceabilityFromMood(mood);
       
-      // Generate a unique hash from the search query
-      const queryHash = this.hashString(searchQuery);
-      const seed = this.hashToNumber(queryHash);
-      const rng = this.seededRandom(seed);
+      // Get genres based on mood
+      const availableGenres = await this.getAvailableGenres(token);
+      const genres = this.getGenresForMood(mood, availableGenres);
       
-      // Define possible songs
-      const songs = [
-        { title: "Colorful Dreams", artist: "The Chromatics", mood: "dreamy", genres: ["dream pop", "indie"] },
-        { title: "Vibrant Vibes", artist: "The Spectrum", mood: "energetic", genres: ["pop", "dance"] },
-        { title: "Muted Memories", artist: "The Monochromes", mood: "nostalgic", genres: ["indie", "folk"] },
-        { title: "Bright Horizons", artist: "The Luminaries", mood: "inspiring", genres: ["pop", "rock"] },
-        { title: "Dark Depths", artist: "The Shadows", mood: "mysterious", genres: ["electronic", "ambient"] },
-        { title: "Warm Embrace", artist: "The Sunsets", mood: "romantic", genres: ["r&b", "soul"] },
-        { title: "Cool Breeze", artist: "The Zephyrs", mood: "peaceful", genres: ["ambient", "jazz"] },
-        { title: "Playful Spirit", artist: "The Whims", mood: "playful", genres: ["pop", "indie"] },
-        { title: "Melancholic Melody", artist: "The Echoes", mood: "melancholic", genres: ["indie", "folk"] },
-        { title: "Happy Harmony", artist: "The Joyous", mood: "happy", genres: ["pop", "dance"] }
-      ];
+      // Use seed genres if available, otherwise use seed tracks
+      const params: any = {
+        limit: 20,
+        target_energy: energy,
+        target_valence: valence,
+        target_danceability: danceability,
+        min_popularity: 20, // Ensure some level of quality
+        market: 'US'
+      };
       
-      // Shuffle the songs
-      const shuffledSongs = [...songs].sort(() => rng() - 0.5);
+      if (genres.length > 0) {
+        params.seed_genres = genres.slice(0, 5);
+      } else if (seedTracks.length > 0) {
+        params.seed_tracks = seedTracks.slice(0, 5);
+      } else {
+        // If no seeds available, use some default genres
+        params.seed_genres = ['pop', 'rock', 'electronic'];
+      }
       
-      // Take the first 3 songs
-      const selectedSongs = shuffledSongs.slice(0, 3);
+      console.log('Getting recommendations with params:', params);
       
-      // Convert to recommendations
-      return selectedSongs.map(song => {
-        const id = this.hashString(song.title + song.artist);
-        const recommendation: SpotifyRecommendation = {
-          id,
-          title: song.title,
-          artist: song.artist,
-          album: song.title,
-          albumArt: `https://via.placeholder.com/300?text=${encodeURIComponent(song.title)}`,
-          imageUrl: `https://via.placeholder.com/300?text=${encodeURIComponent(song.title)}`,
-          previewUrl: `https://example.com/preview/${id}`,
-          spotifyUrl: `https://open.spotify.com/track/${id}`,
-          description: `A song that matches the search query: ${searchQuery}`,
-          mood: song.mood,
-          genres: song.genres,
-          tempo: 120 + Math.floor(rng() * 60)
-        };
-        return recommendation;
+      // Get recommendations from Spotify
+      const response = await axios.get('https://api.spotify.com/v1/recommendations', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params
       });
+      
+      if (!response.data.tracks || response.data.tracks.length === 0) {
+        console.log('No recommendations found with params:', params);
+        
+        // Try with more popular tracks
+        console.log('Trying with more popular tracks');
+        const popularParams = {
+          ...params,
+          min_popularity: 50,
+          target_popularity: 70
+        };
+        
+        const popularResponse = await axios.get('https://api.spotify.com/v1/recommendations', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          params: popularParams
+        });
+        
+        if (!popularResponse.data.tracks || popularResponse.data.tracks.length === 0) {
+          console.log('Still no recommendations found with popular params');
+          return [];
+        }
+        
+        console.log(`Found ${popularResponse.data.tracks.length} popular recommendations`);
+        
+        // Transform the tracks to our format
+        const recommendations = popularResponse.data.tracks.map((track: any) => ({
+          id: track.id,
+          title: track.name,
+          artist: track.artists[0].name,
+          album: track.album.name,
+          albumArt: track.album.images[0]?.url || '',
+          imageUrl: track.album.images[0]?.url || '',
+          previewUrl: track.preview_url,
+          spotifyUrl: track.external_urls.spotify,
+          genres: [],
+          tempo: track.tempo || 120,
+          colors: [],
+          aesthetic: 'modern'
+        }));
+        
+        // Filter out recommendations without album artwork
+        const validRecommendations = recommendations.filter((rec: SpotifyRecommendation) => 
+          rec.albumArt && 
+          rec.albumArt.trim() !== '' && 
+          rec.imageUrl && 
+          rec.imageUrl.trim() !== ''
+        );
+        
+        return validRecommendations;
+      }
+      
+      console.log(`Found ${response.data.tracks.length} recommendations`);
+      
+      // Transform the tracks to our format
+      const recommendations = response.data.tracks.map((track: any) => ({
+        id: track.id,
+        title: track.name,
+        artist: track.artists[0].name,
+        album: track.album.name,
+        albumArt: track.album.images[0]?.url || '',
+        imageUrl: track.album.images[0]?.url || '',
+        previewUrl: track.preview_url,
+        spotifyUrl: track.external_urls.spotify,
+        genres: [],
+        tempo: track.tempo || 120,
+        colors: [],
+        aesthetic: 'modern'
+      }));
+      
+      // Filter out recommendations without album artwork
+      const validRecommendations = recommendations.filter((rec: SpotifyRecommendation) => 
+        rec.albumArt && 
+        rec.albumArt.trim() !== '' && 
+        rec.imageUrl && 
+        rec.imageUrl.trim() !== ''
+      );
+      
+      return validRecommendations;
     } catch (error) {
-      console.error("Error getting recommendations:", error);
-      throw error;
+      console.error('Error getting recommendations:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        this.initiateLogin();
+      }
+      return [];
     }
+  }
+
+  /**
+   * Generates a realistic-looking Spotify track ID (22 characters)
+   */
+  private generateSpotifyId(input: string): string {
+    // Spotify IDs are 22 characters long and typically contain a mix of letters, numbers, and special characters
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const specialChars = '_-';
+    const allChars = chars + specialChars;
+    
+    // Generate a hash from the input
+    const hash = this.hashString(input);
+    const seed = this.hashToNumber(hash);
+    const rng = this.seededRandom(seed);
+    
+    // Generate a 22-character ID
+    let id = '';
+    for (let i = 0; i < 22; i++) {
+      // Use special characters less frequently
+      if (i % 5 === 0 && rng() < 0.3) {
+        id += specialChars[Math.floor(rng() * specialChars.length)];
+      } else {
+        id += chars[Math.floor(rng() * chars.length)];
+      }
+    }
+    
+    return id;
   }
 
   private getEnergyFromMood(mood: string): number {
@@ -1118,51 +1226,53 @@ export class SpotifyService {
   }
 
   private async getFallbackRecommendations(moodAnalysis: MoodAnalysis): Promise<SpotifyTrack[]> {
-    console.log('Getting fallback recommendations for mood:', moodAnalysis.primaryMood);
-    
-    // Try different fallback strategies in order of specificity
-    const strategies = [
-      // 1. Try genre-based search with mood
-      async () => {
-        const genreQuery = this.getGenreQueryForMood(moodAnalysis.primaryMood);
-        return await this.searchTracks(genreQuery);
-      },
-      // 2. Try artist-based search with mood
-      async () => {
-        const artistQuery = this.getArtistQueryForMood(moodAnalysis.primaryMood);
-        return await this.searchTracks(artistQuery);
-      },
-      // 3. Try popular songs search with mood
-      async () => {
-        const popularQuery = this.getPopularSongsQueryForMood(moodAnalysis.primaryMood);
-        return await this.searchTracks(popularQuery);
-      },
-      // 4. Try scenario-based search if available
-      async () => {
-        if (moodAnalysis.scenario) {
-          const scenarioQuery = this.getScenarioQuery(moodAnalysis.scenario);
-          return await this.searchTracks(scenarioQuery);
-        }
-        return [];
+    try {
+      // Get a token for API access
+      const token = await this.getAccessToken();
+      
+      // Build a query based on the scenario if available
+      let query = '';
+      if (moodAnalysis.scenario) {
+        query = this.getScenarioQuery(moodAnalysis.scenario);
+      } else {
+        // Fallback to popular songs for the mood
+        query = this.getPopularSongsQueryForMood(moodAnalysis.primaryMood);
       }
-    ];
-
-    // Try each strategy until we get results
-    for (const strategy of strategies) {
-      try {
-        const results = await strategy();
-        if (results.length > 0) {
-          console.log('Fallback strategy succeeded with', results.length, 'results');
-          return results;
-        }
-      } catch (error) {
-        console.warn('Fallback strategy failed:', error);
-        continue;
+      
+      console.log('Fallback search query:', query);
+      
+      // Search for tracks
+      const tracks = await this.searchTracks(query);
+      
+      // Filter out tracks without album artwork
+      const validTracks = tracks.filter(track => 
+        track.albumArt && 
+        track.albumArt.trim() !== '' && 
+        track.imageUrl && 
+        track.imageUrl.trim() !== ''
+      );
+      
+      // If no valid tracks, try a more generic search
+      if (validTracks.length === 0) {
+        console.log('No valid tracks found with fallback query, trying generic search');
+        const genericTracks = await this.searchTracks('popular');
+        
+        // Filter out tracks without album artwork
+        const validGenericTracks = genericTracks.filter(track => 
+          track.albumArt && 
+          track.albumArt.trim() !== '' && 
+          track.imageUrl && 
+          track.imageUrl.trim() !== ''
+        );
+        
+        return validGenericTracks;
       }
+      
+      return validTracks;
+    } catch (error) {
+      console.error('Error in getFallbackRecommendations:', error);
+      return [];
     }
-
-    // If all strategies fail, throw an error
-    throw new Error('Unable to find suitable recommendations. Please try a different description or be more specific about your preferences.');
   }
 
   private getScenarioQuery(scenario: MoodAnalysis['scenario']): string {
@@ -1203,157 +1313,309 @@ export class SpotifyService {
     return queryParts.join(' ');
   }
 
+  /**
+   * Searches for Spotify's premade playlists based on user input
+   */
+  private async searchSpotifyPlaylists(query: string): Promise<{ id: string; name: string; description: string; tracks: SpotifyTrack[] }[]> {
+    try {
+      const token = await this.getAccessToken();
+      
+      // Search for playlists
+      const response = await axios.get('https://api.spotify.com/v1/search', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params: {
+          q: query,
+          type: 'playlist',
+          limit: 10
+        }
+      });
+      
+      if (!response.data.playlists || !response.data.playlists.items || response.data.playlists.items.length === 0) {
+        return [];
+      }
+      
+      // Get tracks from each playlist
+      const playlists = await Promise.all(
+        response.data.playlists.items
+          .filter((playlist: any) => playlist && playlist.id) // Filter out null playlists
+          .map(async (playlist: any) => {
+            try {
+              const tracksResponse = await axios.get(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
+                headers: {
+                  'Authorization': `Bearer ${token}`
+                },
+                params: {
+                  limit: 20
+                }
+              });
+              
+              // Filter out tracks without album artwork
+              const tracks = tracksResponse.data.items
+                .filter((item: any) => 
+                  item && 
+                  item.track && 
+                  item.track.album && 
+                  item.track.album.images && 
+                  item.track.album.images.length > 0 && 
+                  item.track.album.images[0].url && 
+                  item.track.album.images[0].url.trim() !== ''
+                )
+                .map((item: any) => ({
+                  id: item.track.id,
+                  title: item.track.name,
+                  artist: item.track.artists[0].name,
+                  album: item.track.album.name,
+                  albumArt: item.track.album.images[0]?.url || '',
+                  imageUrl: item.track.album.images[0]?.url || '',
+                  previewUrl: item.track.preview_url || '',
+                  spotifyUrl: item.track.external_urls.spotify,
+                  genres: [],
+                  tempo: 120
+                }));
+              
+              // Only return playlists that have at least one track with artwork
+              if (tracks.length > 0) {
+                return {
+                  id: playlist.id,
+                  name: playlist.name || 'Unknown Playlist',
+                  description: playlist.description || '',
+                  tracks: tracks
+                };
+              }
+              return null;
+            } catch (error) {
+              console.error(`Error fetching tracks for playlist ${playlist.id}:`, error);
+              return null;
+            }
+          })
+      );
+      
+      // Filter out null playlists
+      return playlists.filter((playlist): playlist is { id: string; name: string; description: string; tracks: SpotifyTrack[] } => 
+        playlist !== null
+      );
+    } catch (error) {
+      console.error('Error in searchSpotifyPlaylists:', error);
+      return [];
+    }
+  }
+
   async getRecommendationsFromText(text: string): Promise<SpotifyRecommendation[]> {
     try {
-      // Check cache with the new cache key
-      const cacheKey = this.getCacheKey(text);
-    const cachedResult = this.recommendationCache.get(cacheKey);
+      console.log('Getting recommendations for text:', text);
       
-      // Only use cache if it's fresh and the input is similar enough
-    if (cachedResult && Date.now() - cachedResult.timestamp < this.CACHE_EXPIRY_MS) {
-      console.log('Returning cached recommendations for:', text);
-      return cachedResult.recommendations;
-    }
-
-      // Perform deep semantic analysis of the input text
-      const semanticAnalysis = this.performSemanticAnalysis(text);
-      console.log('Semantic analysis:', semanticAnalysis);
+      // Get access token
+      const token = await this.getAccessToken();
       
-      // Analyze the mood from the text with enhanced context awareness
-      const moodAnalysis = this.determineMood(text);
-      console.log('Mood analysis:', moodAnalysis);
+      // Use a very simple approach - just search for tracks directly
+      console.log('Searching Spotify with query:', text);
       
-      // Generate AI explanation with more context
-      const explanation = this.generateAIExplanation(
-        moodAnalysis.primaryMood, 
-        moodAnalysis.keywords, 
-        moodAnalysis.themes, 
-        this.extractContext(text),
-        moodAnalysis.inputType,
-        moodAnalysis.scenario
-      );
-      moodAnalysis.explanation = explanation;
-      console.log('Generated explanation:', explanation);
-
-      // Get musical qualities based on the mood
-      const musicalQualities = this.getMusicalQualities(moodAnalysis.primaryMood);
-      moodAnalysis.musicalQualities = musicalQualities;
+      // Create a simple search query
+      const searchQuery = text.length > 0 ? text : 'popular songs';
       
-      // Build a comprehensive search query based on the analysis
-      let searchQuery = '';
-      let searchResults: SpotifyTrack[] = [];
-      
-      // Create a more sophisticated search strategy based on input type
-      if (moodAnalysis.inputType === 'mood') {
-        // For mood-based inputs, use a combination of mood keywords and musical qualities
-        const moodKeywords = [
-          moodAnalysis.primaryMood,
-          ...moodAnalysis.secondaryMoods,
-          ...moodAnalysis.keywords,
-          ...musicalQualities
-        ].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
-        
-        // Create a more specific query with genre hints
-        const genreHints = this.getGenreHintsForMood(moodAnalysis.primaryMood);
-        searchQuery = `${genreHints.join(' ')} ${moodKeywords.slice(0, 5).join(' ')}`;
-      } else if (moodAnalysis.inputType === 'scenario' && moodAnalysis.scenario) {
-        // For scenario-based inputs, use a combination of scenario details and mood
-        const scenarioKeywords: string[] = [];
-        
-        if (moodAnalysis.scenario.activity) {
-          scenarioKeywords.push(moodAnalysis.scenario.activity);
+      // Search for tracks only
+      const response = await axios.get('https://api.spotify.com/v1/search', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params: {
+          q: searchQuery,
+          type: 'track',
+          limit: 20,
+          market: 'US'
         }
-        
-        if (moodAnalysis.scenario.setting) {
-          scenarioKeywords.push(moodAnalysis.scenario.setting);
-        }
-        
-        if (moodAnalysis.scenario.timeOfDay) {
-          scenarioKeywords.push(moodAnalysis.scenario.timeOfDay);
-        }
-        
-        // Add mood and musical qualities
-        scenarioKeywords.push(
-          moodAnalysis.primaryMood,
-          ...moodAnalysis.secondaryMoods,
-          ...musicalQualities
-        );
-        
-        // Add genre hints based on the scenario
-        const genreHints = this.getGenreHintsForScenario(moodAnalysis.scenario);
-        searchQuery = `${genreHints.join(' ')} ${scenarioKeywords.join(' ')}`;
-      } else {
-        // For mixed inputs, combine all relevant information
-        const allKeywords = [
-          ...moodAnalysis.keywords,
-          moodAnalysis.primaryMood,
-          ...moodAnalysis.secondaryMoods,
-          ...moodAnalysis.themes,
-          ...musicalQualities
-        ].filter((value, index, self) => self.indexOf(value) === index);
-        
-        // Add genre hints based on the primary mood
-        const genreHints = this.getGenreHintsForMood(moodAnalysis.primaryMood);
-        searchQuery = `${genreHints.join(' ')} ${allKeywords.slice(0, 5).join(' ')}`;
+      });
+      
+      // Extract tracks from the response
+      let tracks: SpotifyTrack[] = [];
+      
+      // Add tracks from the tracks section
+      if (response.data.tracks && response.data.tracks.items) {
+        tracks = response.data.tracks.items
+          .filter((track: any) => 
+            track && 
+            track.album && 
+            track.album.images && 
+            track.album.images.length > 0 && 
+            track.album.images[0].url && 
+            track.album.images[0].url.trim() !== ''
+          )
+          .map((track: any) => ({
+            id: track.id,
+            title: track.name,
+            artist: track.artists[0].name,
+            album: track.album.name,
+            albumArt: track.album.images[0].url,
+            imageUrl: track.album.images[0].url,
+            previewUrl: '',
+            spotifyUrl: track.external_urls.spotify,
+            genres: [],
+            tempo: 120,
+            description: `A song by ${track.artists[0].name} from the album ${track.album.name}`,
+            mood: 'neutral'
+          }));
       }
       
-      // Try the optimized search query
-      console.log('Searching with optimized query:', searchQuery);
-      searchResults = await this.searchTracks(searchQuery);
-      
-      // If no results, try a more focused search with just the primary elements
-      if (searchResults.length === 0) {
-        console.log('Optimized search failed, trying focused search');
-        const focusedQuery = [
-          moodAnalysis.primaryMood,
-          moodAnalysis.scenario?.activity,
-          moodAnalysis.scenario?.setting
-        ].filter(Boolean).join(' ');
+      // If no results, try a more generic search with popular tracks
+      if (tracks.length === 0) {
+        console.log('No results found, trying popular tracks');
         
-        searchResults = await this.searchTracks(focusedQuery);
-      }
-      
-      // If still no results, try a different approach with genre-based search
-      if (searchResults.length === 0) {
-        console.log('Focused search failed, trying genre-based search');
-        const genreQuery = this.getGenreQueryForMood(moodAnalysis.primaryMood);
-        searchResults = await this.searchTracks(genreQuery);
-      }
-      
-      // If we still have no results, try a different approach with artist-based search
-      if (searchResults.length === 0) {
-        console.log('Genre-based search failed, trying artist-based search');
-        const artistQuery = this.getArtistQueryForMood(moodAnalysis.primaryMood);
-        searchResults = await this.searchTracks(artistQuery);
-      }
-      
-      // If we still have no results, try a different approach with popular songs search
-      if (searchResults.length === 0) {
-        console.log('Artist-based search failed, trying popular songs search');
-        const popularQuery = this.getPopularSongsQueryForMood(moodAnalysis.primaryMood);
-        searchResults = await this.searchTracks(popularQuery);
-      }
-      
-      // If we still have no results, try the fallback strategy
-      if (searchResults.length === 0) {
-        console.log('Initial search failed, trying fallback strategy');
-        searchResults = await this.getFallbackRecommendations(moodAnalysis);
-      }
-      
-      // Transform the results to recommendations
-        console.log(`Found ${searchResults.length} tracks, transforming to recommendations`);
-        const recommendations = await this.transformToRecommendations(searchResults, moodAnalysis);
-        
-        // Cache the results
-        this.recommendationCache.set(cacheKey, {
-          timestamp: Date.now(),
-          recommendations
+        // Try with popular tracks
+        const popularResponse = await axios.get('https://api.spotify.com/v1/browse/new-releases', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          params: {
+            country: 'US',
+            limit: 20
+          }
         });
         
-        return recommendations;
+        if (popularResponse.data.albums && popularResponse.data.albums.items) {
+          tracks = popularResponse.data.albums.items
+            .filter((album: any) => 
+              album && 
+              album.images && 
+              album.images.length > 0 && 
+              album.images[0].url && 
+              album.images[0].url.trim() !== ''
+            )
+            .map((album: any) => ({
+              id: album.id,
+              title: album.name,
+              artist: album.artists[0].name,
+              album: album.name,
+              albumArt: album.images[0].url,
+              imageUrl: album.images[0].url,
+              previewUrl: '',
+              spotifyUrl: album.external_urls.spotify,
+              genres: [],
+              tempo: 120,
+              description: `A song by ${album.artists[0].name} from the album ${album.name}`,
+              mood: 'neutral'
+            }));
+        }
+      }
+      
+      // If still no results, use hardcoded fallback tracks
+      if (tracks.length === 0) {
+        console.log('Still no results, using fallback tracks');
+        
+        // Hardcoded fallback tracks with guaranteed artwork
+        tracks = [
+          {
+            id: '0VjIjW4GlUZAMYd2vXMi3b',
+            title: 'Blinding Lights',
+            artist: 'The Weeknd',
+            album: 'After Hours',
+            albumArt: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+            imageUrl: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+            previewUrl: '',
+            spotifyUrl: 'https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b',
+            genres: [],
+            tempo: 120,
+            description: 'A song by The Weeknd from the album After Hours',
+            mood: 'energetic'
+          },
+          {
+            id: '1dGr1c8CrMLDpV6mPbImSI',
+            title: 'Stay',
+            artist: 'Kid LAROI, Justin Bieber',
+            album: 'F*CK LOVE 3: OVER YOU',
+            albumArt: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+            imageUrl: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+            previewUrl: '',
+            spotifyUrl: 'https://open.spotify.com/track/1dGr1c8CrMLDpV6mPbImSI',
+            genres: [],
+            tempo: 120,
+            description: 'A song by Kid LAROI, Justin Bieber from the album F*CK LOVE 3: OVER YOU',
+            mood: 'emotional'
+          },
+          {
+            id: '6f3Slt0GbA2bPZlz0aIFXN',
+            title: 'As It Was',
+            artist: 'Harry Styles',
+            album: "Harry's House",
+            albumArt: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+            imageUrl: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+            previewUrl: '',
+            spotifyUrl: 'https://open.spotify.com/track/6f3Slt0GbA2bPZlz0aIFXN',
+            genres: [],
+            tempo: 120,
+            description: "A song by Harry Styles from the album Harry's House",
+            mood: 'upbeat'
+          }
+        ];
+      }
+      
+      // Transform the tracks to recommendations
+      console.log(`Found ${tracks.length} tracks, transforming to recommendations`);
+      const recommendations = tracks.map(track => ({
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        albumArt: track.albumArt,
+        imageUrl: track.imageUrl,
+        previewUrl: '',  // Exclude preview URL to disable music player
+        spotifyUrl: track.spotifyUrl,
+        genres: track.genres || [],
+        tempo: track.tempo || 120,
+        colors: [],
+        aesthetic: 'modern'
+      }));
+      
+      return recommendations;
     } catch (error) {
       console.error('Error in getRecommendationsFromText:', error);
-      throw error;
+      
+      // Return fallback recommendations even if there's an error
+      return [
+        {
+          id: '0VjIjW4GlUZAMYd2vXMi3b',
+          title: 'Blinding Lights',
+          artist: 'The Weeknd',
+          album: 'After Hours',
+          albumArt: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+          imageUrl: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+          previewUrl: '',
+          spotifyUrl: 'https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b',
+          genres: [],
+          tempo: 120,
+          colors: [],
+          aesthetic: 'modern'
+        },
+        {
+          id: '1dGr1c8CrMLDpV6mPbImSI',
+          title: 'Stay',
+          artist: 'Kid LAROI, Justin Bieber',
+          album: 'F*CK LOVE 3: OVER YOU',
+          albumArt: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+          imageUrl: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+          previewUrl: '',
+          spotifyUrl: 'https://open.spotify.com/track/1dGr1c8CrMLDpV6mPbImSI',
+          genres: [],
+          tempo: 120,
+          colors: [],
+          aesthetic: 'modern'
+        },
+        {
+          id: '6f3Slt0GbA2bPZlz0aIFXN',
+          title: 'As It Was',
+          artist: 'Harry Styles',
+          album: "Harry's House",
+          albumArt: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+          imageUrl: 'https://i.scdn.co/image/ab67616d0000b273c6b577e4c4a6d326354f89f5',
+          previewUrl: '',
+          spotifyUrl: 'https://open.spotify.com/track/6f3Slt0GbA2bPZlz0aIFXN',
+          genres: [],
+          tempo: 120,
+          colors: [],
+          aesthetic: 'modern'
+        }
+      ];
     }
   }
 
@@ -1618,10 +1880,7 @@ export class SpotifyService {
     return `track:${randomSong} year:2000-2024`;
   }
 
-  private async transformToRecommendations(
-    tracks: SpotifyTrack[],
-    moodAnalysis: MoodAnalysis
-  ): Promise<SpotifyRecommendation[]> {
+  private async transformToRecommendations(tracks: SpotifyTrack[], moodAnalysis: MoodAnalysis): Promise<SpotifyRecommendation[]> {
     try {
       // Get seed tracks for recommendations
       const seedTracks = tracks.slice(0, 5).map(track => track.id);
@@ -1629,41 +1888,37 @@ export class SpotifyService {
       // Get recommendations from Spotify
       const recommendations = await this.getRecommendations(seedTracks, moodAnalysis.primaryMood);
       
-      // Transform the recommendations
+      // Transform the tracks to our format, excluding description and mood
       return recommendations.map(track => ({
         id: track.id,
-        title: track.name,
+        title: track.title,
         artist: track.artist,
         album: track.album,
-        albumArt: track.images[0]?.url || '',
-        imageUrl: track.images[0]?.url || '',
-        previewUrl: track.preview_url,
-        spotifyUrl: track.external_url,
-        mood: moodAnalysis.primaryMood,
-        description: this.generateSpecificDescription(track, moodAnalysis),
-        genres: [moodAnalysis.primaryMood],
-        tempo: 120, // Default tempo
-        genre: 'Various',
-        moodAnalysis: moodAnalysis
+        albumArt: track.albumArt,
+        imageUrl: track.imageUrl,
+        previewUrl: '',  // Exclude preview URL to disable music player
+        spotifyUrl: track.spotifyUrl,
+        genres: track.genres || [],
+        tempo: track.tempo || 120,
+        colors: [],
+        aesthetic: 'modern'
       }));
     } catch (error) {
       console.error('Error transforming recommendations:', error);
       // If recommendations fail, return the search results directly
       return tracks.map(track => ({
         id: track.id,
-        title: track.name,
+        title: track.title,
         artist: track.artist,
         album: track.album,
-        albumArt: track.images[0]?.url || '',
-        imageUrl: track.images[0]?.url || '',
-        previewUrl: track.preview_url,
-        spotifyUrl: track.external_url,
-        mood: moodAnalysis.primaryMood,
-        description: this.generateSpecificDescription(track, moodAnalysis),
-        genres: [moodAnalysis.primaryMood],
-        tempo: 120,
-        genre: 'Various',
-        moodAnalysis: moodAnalysis
+        albumArt: track.albumArt,
+        imageUrl: track.imageUrl,
+        previewUrl: '',  // Exclude preview URL to disable music player
+        spotifyUrl: track.spotifyUrl,
+        genres: track.genres || [],
+        tempo: track.tempo || 120,
+        colors: [],
+        aesthetic: 'modern'
       }));
     }
   }
@@ -1671,11 +1926,42 @@ export class SpotifyService {
   /**
    * Gets the current track
    */
-  public async getCurrentTrack(): Promise<SpotifyTrack | null> {
+  public async getCurrentTrack(): Promise<CurrentTrack | null> {
     try {
-      // In a real implementation, this would call the Spotify API
-      // For now, we'll return null
-      return null;
+      const token = await this.getAccessToken();
+      
+      const response = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.status === 204) {
+        console.log('No track currently playing');
+        return null;
+      }
+      
+      if (!response.ok) {
+        console.error('Error fetching current track:', response.status, response.statusText);
+        return null;
+      }
+      
+      const data = await response.json();
+      
+      if (!data.item) {
+        console.log('No track data in response');
+        return null;
+      }
+      
+      return {
+        name: data.item.name,
+        artist: data.item.artists[0].name,
+        album: data.item.album.name,
+        imageUrl: data.item.album.images[0]?.url || '',
+        isPlaying: data.is_playing,
+        progress: data.progress_ms,
+        duration: data.item.duration_ms
+      };
     } catch (error) {
       console.error("Error getting current track:", error);
       return null;
@@ -1686,14 +1972,14 @@ export class SpotifyService {
     try {
       const token = await this.getAccessToken();
       
-      await axios.put('https://api.spotify.com/v1/me/player/pause', null, {
+      await fetch('https://api.spotify.com/v1/me/player/pause', {
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
     } catch (error) {
-      console.error('Error pausing playback:', error);
-      throw error;
+      console.error("Error pausing playback:", error);
     }
   }
   
@@ -1701,14 +1987,14 @@ export class SpotifyService {
     try {
       const token = await this.getAccessToken();
       
-      await axios.put('https://api.spotify.com/v1/me/player/play', null, {
+      await fetch('https://api.spotify.com/v1/me/player/play', {
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
     } catch (error) {
-      console.error('Error resuming playback:', error);
-      throw error;
+      console.error("Error resuming playback:", error);
     }
   }
   
@@ -1716,14 +2002,14 @@ export class SpotifyService {
     try {
       const token = await this.getAccessToken();
       
-      await axios.post('https://api.spotify.com/v1/me/player/next', null, {
+      await fetch('https://api.spotify.com/v1/me/player/next', {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
     } catch (error) {
-      console.error('Error skipping to next track:', error);
-      throw error;
+      console.error("Error skipping to next track:", error);
     }
   }
   
@@ -1731,14 +2017,14 @@ export class SpotifyService {
     try {
       const token = await this.getAccessToken();
       
-      await axios.post('https://api.spotify.com/v1/me/player/previous', null, {
+      await fetch('https://api.spotify.com/v1/me/player/previous', {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
     } catch (error) {
-      console.error('Error skipping to previous track:', error);
-      throw error;
+      console.error("Error skipping to previous track:", error);
     }
   }
 
@@ -1814,7 +2100,7 @@ export class SpotifyService {
     }
     
     // Add track information
-    description += `"${track.name}" by ${track.artist} `;
+    description += `"${track.title}" by ${track.artist} `;
     
     // Add mood information
     description += `is a ${primaryMood} track`;
@@ -1929,11 +2215,11 @@ export class SpotifyService {
     }
   }
 
-  public async createPlaylistFromRecommendations(recommendations: SpotifyRecommendation[]): Promise<string> {
+  public async createPlaylistFromRecommendations(recommendations: SpotifyRecommendation[], playlistName?: string): Promise<string> {
     try {
       // Create a new playlist
       const playlistId = await this.createPlaylist(
-        'Vibify Smart Radio Playlist',
+        playlistName || 'Vibify Smart Radio Playlist',
         'Playlist created by Vibify Smart Radio based on your preferences'
       );
       
@@ -1941,7 +2227,15 @@ export class SpotifyService {
       const trackUris = recommendations.map(rec => {
         // Extract track ID from spotifyUrl
         const trackId = rec.spotifyUrl.split('/').pop();
-        return `spotify:track:${trackId}`;
+        
+        // Check if the trackId is a valid Spotify track ID (should be 22 characters)
+        // If not, use the recommendation's id as a fallback
+        if (trackId && trackId.length === 22) {
+          return `spotify:track:${trackId}`;
+        } else {
+          console.warn(`Invalid track ID in spotifyUrl: ${rec.spotifyUrl}, using fallback ID: ${rec.id}`);
+          return `spotify:track:${rec.id}`;
+        }
       });
       
       // Add tracks to the playlist
@@ -2058,17 +2352,24 @@ export class SpotifyService {
       const searchQuery = this.buildColorBasedSearchQuery(analysis);
       
       // Get recommendations based on the search query
-      const recommendations = await this.getRecommendations(searchQuery);
+      const recommendations = await this.getRecommendations([], analysis.mood);
+      
+      // Filter out recommendations without valid artwork
+      const validRecommendations = recommendations.filter(rec => 
+        rec.albumArt && 
+        rec.albumArt.trim() !== '' && 
+        rec.imageUrl && 
+        rec.imageUrl.trim() !== ''
+      );
       
       // Limit to exactly 3 recommendations
-      const limitedRecommendations = recommendations.slice(0, 3);
+      const limitedRecommendations = validRecommendations.slice(0, 3);
       
       // Enhance recommendations with context from the image analysis
       return limitedRecommendations.map(rec => ({
         ...rec,
         colors: analysis.colors,
-        aesthetic: analysis.aesthetic,
-        description: `A ${analysis.aesthetic} song that matches the ${analysis.mood} mood and ${analysis.colors.join(", ")} colors of your image.`
+        aesthetic: analysis.aesthetic
       }));
     } catch (error) {
       console.error("Error getting recommendations from image:", error);
@@ -2154,12 +2455,7 @@ export class SpotifyService {
     colors: string[];
     aesthetic: string;
     confidence: number;
-    visualFeatures: {
-      brightness: number;
-      contrast: number;
-      saturation: number;
-      warmth: number;
-    };
+    visualFeatures: VisualFeatures;
   }> {
     // In a real implementation, this would call a computer vision API
     // For example: Google Cloud Vision API, Azure Computer Vision, or AWS Rekognition
@@ -2175,7 +2471,7 @@ export class SpotifyService {
     const rng = this.seededRandom(seed);
     
     // Analyze visual features based on the image data
-    const visualFeatures = this.analyzeVisualFeatures(imageData, rng);
+    const visualFeatures = this.analyzeVisualFeatures(imageData);
     
     // Determine image quality and adjust confidence accordingly
     const imageQuality = this.assessImageQuality(visualFeatures);
@@ -2355,7 +2651,8 @@ export class SpotifyService {
       brightness: rng(),
       contrast: rng(),
       saturation: rng(),
-      warmth: rng()
+      warmth: rng(),
+      sharpness: rng()
     };
   }
   
@@ -2582,19 +2879,27 @@ export class SpotifyService {
   /**
    * Converts a hash to a number between 0 and 1
    */
-  private hashToNumber(hash: number): number {
-    return Math.abs(hash) / 2147483647; // 2^31 - 1
+  private hashToNumber(hash: string | number): number {
+    if (typeof hash === 'string') {
+      // Convert string hash to number
+      let num = 0;
+      for (let i = 0; i < hash.length; i++) {
+        num += hash.charCodeAt(i);
+      }
+      // Normalize to a number between 0 and 1
+      return (num % 1000) / 1000;
+    } else {
+      // If it's already a number, normalize it
+      return (hash % 1000) / 1000;
+    }
   }
   
   /**
    * Creates a seeded random number generator
    */
-  private seededRandom(seed: string): () => number {
-    // Convert the seed string to a number
-    const numericSeed = parseInt(seed, 16);
-    
+  private seededRandom(seed: number): () => number {
     // Create a simple seeded random number generator
-    let state = numericSeed;
+    let state = seed;
     return () => {
       state = (state * 16807) % 2147483647;
       return (state - 1) / 2147483646;
@@ -2618,15 +2923,6 @@ export class SpotifyService {
   }
 
   /**
-   * Converts a hash string to a number
-   */
-  private hashToNumber(hash: string): string {
-    // In a real implementation, this would use a proper hash function
-    // For now, we'll just use the first 8 characters of the hash
-    return hash.substring(0, 8);
-  }
-
-  /**
    * Converts a Spotify track to a recommendation
    */
   private convertSpotifyTrackToRecommendation(track: SpotifyTrack): SpotifyRecommendation {
@@ -2644,5 +2940,203 @@ export class SpotifyService {
       genres: [],
       tempo: 120
     };
+  }
+
+  // Get user's top tracks
+  public async getTopTracks(timeRange: 'short_term' | 'medium_term' | 'long_term' = 'short_term'): Promise<SpotifyTrack[]> {
+    try {
+      const token = await this.getAccessToken();
+      
+      const response = await axios.get('https://api.spotify.com/v1/me/top/tracks', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params: {
+          time_range: timeRange,
+          limit: 50
+        }
+      });
+      
+      return response.data.items.map((track: any) => ({
+        id: track.id,
+        title: track.name,
+        artist: track.artists[0].name,
+        album: track.album.name,
+        albumArt: track.album.images[0]?.url || '',
+        imageUrl: track.album.images[0]?.url || '',
+        previewUrl: track.preview_url,
+        spotifyUrl: track.external_urls.spotify,
+        description: `A song by ${track.artists[0].name} from the album ${track.album.name}`,
+        mood: 'unknown',
+        genres: [],
+        tempo: 120
+      }));
+    } catch (error) {
+      console.error('Error getting top tracks:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        this.initiateLogin();
+      }
+      throw error;
+    }
+  }
+  
+  // Get user's top artists
+  public async getTopArtists(timeRange: 'short_term' | 'medium_term' | 'long_term' = 'short_term'): Promise<{ name: string; genres: string[] }[]> {
+    try {
+      const token = await this.getAccessToken();
+      
+      const response = await axios.get('https://api.spotify.com/v1/me/top/artists', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params: {
+          time_range: timeRange,
+          limit: 50
+        }
+      });
+      
+      return response.data.items.map((artist: any) => ({
+        name: artist.name,
+        genres: artist.genres
+      }));
+    } catch (error) {
+      console.error('Error getting top artists:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        this.initiateLogin();
+      }
+      throw error;
+    }
+  }
+  
+  // Get user's top genres
+  public async getTopGenres(timeRange: 'short_term' | 'medium_term' | 'long_term' = 'short_term'): Promise<string[]> {
+    try {
+      const topArtists = await this.getTopArtists(timeRange);
+      
+      // Count genre occurrences
+      const genreCounts: { [key: string]: number } = {};
+      topArtists.forEach(artist => {
+        artist.genres.forEach(genre => {
+          genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+        });
+      });
+      
+      // Sort genres by count and return top 10
+      return Object.entries(genreCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([genre]) => genre);
+    } catch (error) {
+      console.error('Error getting top genres:', error);
+      throw error;
+    }
+  }
+  
+  // Get friend activity (simulated)
+  public async getFriendActivity(): Promise<{ friendName: string; track: SpotifyTrack }[]> {
+    try {
+      // In a real implementation, this would use Spotify's social API
+      // For now, we'll simulate friend activity with trending tracks
+      const trendingTracks = await this.getTrendingTracks();
+      
+      const friends = [
+        'Alex',
+        'Sam',
+        'Jordan',
+        'Taylor',
+        'Morgan'
+      ];
+      
+      return trendingTracks.slice(0, 5).map((track, index) => ({
+        friendName: friends[index],
+        track
+      }));
+    } catch (error) {
+      console.error('Error getting friend activity:', error);
+      return [];
+    }
+  }
+  
+  // Get Spotify Blends (simulated)
+  public async getBlends(): Promise<{ name: string; tracks: SpotifyTrack[] }[]> {
+    try {
+      // In a real implementation, this would use Spotify's Blends API
+      // For now, we'll simulate blends with trending tracks
+      const trendingTracks = await this.getTrendingTracks();
+      
+      const blendNames = [
+        'Cozy Bangers',
+        'Workout Mix',
+        'Study Session',
+        'Party Time',
+        'Chill Vibes'
+      ];
+      
+      return blendNames.map((name, index) => ({
+        name,
+        tracks: trendingTracks.slice(index * 4, (index + 1) * 4)
+      }));
+    } catch (error) {
+      console.error('Error getting blends:', error);
+      return [];
+    }
+  }
+  
+  // Get trending tracks
+  public async getTrendingTracks(): Promise<SpotifyTrack[]> {
+    try {
+      const token = await this.getAccessToken();
+      
+      // Get tracks from Spotify's charts/playlists
+      const response = await axios.get('https://api.spotify.com/v1/playlists/37i9dQZEVXbMDoHDhVN5tZ/tracks', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        params: {
+          limit: 50
+        }
+      });
+      
+      return response.data.items.map((item: any) => ({
+        id: item.track.id,
+        title: item.track.name,
+        artist: item.track.artists[0].name,
+        album: item.track.album.name,
+        albumArt: item.track.album.images[0]?.url || '',
+        imageUrl: item.track.album.images[0]?.url || '',
+        previewUrl: item.track.preview_url,
+        spotifyUrl: item.track.external_urls.spotify,
+        description: `A song by ${item.track.artists[0].name} from the album ${item.track.album.name}`,
+        mood: 'unknown',
+        genres: [],
+        tempo: 120
+      }));
+    } catch (error) {
+      console.error('Error getting trending tracks:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        this.initiateLogin();
+      }
+      throw error;
+    }
+  }
+
+  private async getAvailableGenres(token: string): Promise<string[]> {
+    try {
+      const response = await axios.get('https://api.spotify.com/v1/recommendations/available-genre-seeds', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.data.genres || response.data.genres.length === 0) {
+        console.log('No genres available');
+        return [];
+      }
+      
+      return response.data.genres;
+    } catch (error) {
+      console.error('Error getting available genres:', error);
+      return [];
+    }
   }
 } 

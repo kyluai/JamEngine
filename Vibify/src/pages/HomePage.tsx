@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
-import { Radio, Music, ListMusic, Image, Calendar, ArrowRight, Settings } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Radio, Music, ListMusic, Image, Calendar, ArrowRight, Settings, AlertTriangle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { SettingsModal } from '../components/settings-modal';
@@ -8,44 +8,79 @@ import { JamEngineLogo } from '../components/JamEngineLogo';
 
 export function HomePage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showWarning, setShowWarning] = useState(false);
+  const [warningFeature, setWarningFeature] = useState<string | null>(null);
+  const navigate = useNavigate();
   
   const features = [
     {
-      title: 'Smart Radio / AI DJ',
-      description: 'Let AI create a personalized radio station based on your mood and preferences.',
-      icon: <Radio className="h-8 w-8 text-primary" />,
+      title: 'Smart Radio',
+      description: 'Create a personalized radio station that adapts to your current mood and preferences.',
+      icon: <Radio className="h-6 w-6" />,
       link: '/smart-radio',
-      color: 'bg-blue-500/10 hover:bg-blue-500/20'
+      color: 'hover:bg-blue-500/10 hover:border-blue-500/20',
+      inDevelopment: false,
+      comingSoon: false
     },
     {
       title: 'Song Generator',
-      description: 'Generate song recommendations based on your current vibe or mood.',
-      icon: <Music className="h-8 w-8 text-primary" />,
+      description: 'Get personalized song recommendations based on your current vibe or mood.',
+      icon: <Music className="h-6 w-6" />,
       link: '/song-generator',
-      color: 'bg-purple-500/10 hover:bg-purple-500/20'
+      color: 'hover:bg-purple-500/10 hover:border-purple-500/20',
+      inDevelopment: false,
+      comingSoon: false
     },
     {
       title: 'Playlist Generator',
       description: 'Create custom playlists for any occasion or activity.',
-      icon: <ListMusic className="h-8 w-8 text-primary" />,
+      icon: <ListMusic className="h-6 w-6" />,
       link: '/playlist-generator',
-      color: 'bg-green-500/10 hover:bg-green-500/20'
+      color: 'hover:bg-green-500/10 hover:border-green-500/20',
+      inDevelopment: false,
+      comingSoon: false
     },
     {
-      title: 'Picture-to-Song Generator',
+      title: 'Picture-to-Song',
       description: 'Upload an image and get song recommendations that match its mood and aesthetic.',
-      icon: <Image className="h-8 w-8 text-primary" />,
+      icon: <Image className="h-6 w-6" />,
       link: '/picture-to-song',
-      color: 'bg-amber-500/10 hover:bg-amber-500/20'
+      color: 'hover:bg-pink-500/10 hover:border-pink-500/20',
+      inDevelopment: true,
+      comingSoon: false
     },
     {
       title: 'Daylist Feature',
       description: 'Get personalized song recommendations based on your daily routine and activities.',
-      icon: <Calendar className="h-8 w-8 text-primary" />,
+      icon: <Calendar className="h-6 w-6" />,
       link: '/daylist',
-      color: 'bg-rose-500/10 hover:bg-rose-500/20'
+      color: 'hover:bg-orange-500/10 hover:border-orange-500/20',
+      inDevelopment: false,
+      comingSoon: true
     }
   ];
+
+  const handleFeatureClick = (feature: typeof features[0], e: React.MouseEvent) => {
+    if (feature.inDevelopment) {
+      e.preventDefault();
+      setWarningFeature('inDevelopment');
+      setShowWarning(true);
+    } else if (feature.comingSoon) {
+      e.preventDefault();
+      setWarningFeature('comingSoon');
+      setShowWarning(true);
+    }
+  };
+
+  const handleContinueToFeature = () => {
+    setShowWarning(false);
+    if (warningFeature === 'inDevelopment') {
+      navigate('/picture-to-song');
+    } else if (warningFeature === 'comingSoon') {
+      navigate('/daylist');
+    }
+    setWarningFeature(null);
+  };
 
   return (
     <div className="container mx-auto flex min-h-screen flex-col items-center px-4">
@@ -73,7 +108,7 @@ export function HomePage() {
           <h1 className="text-5xl font-bold tracking-tight">The Jam Engine</h1>
         </div>
         <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
-          Discover the perfect soundtrack for every moment with AI-powered music recommendations.
+          Powered by AI, Driven by Music
         </p>
       </motion.div>
 
@@ -114,15 +149,26 @@ export function HomePage() {
             <Link 
               key={index} 
               to={feature.link}
-              className={`group rounded-xl border p-6 transition-all duration-300 ${feature.color}`}
+              onClick={(e) => handleFeatureClick(feature, e)}
+              className={`group relative rounded-xl border p-6 transition-all duration-300 ${feature.color}`}
             >
+              {feature.inDevelopment && (
+                <div className="absolute -right-2 -top-2 rounded-full bg-yellow-500 px-2 py-1 text-xs font-bold text-white shadow-md">
+                  In Development
+                </div>
+              )}
+              {feature.comingSoon && (
+                <div className="absolute -right-2 -top-2 rounded-full bg-blue-500 px-2 py-1 text-xs font-bold text-white shadow-md">
+                  Coming Soon
+                </div>
+              )}
               <div className="mb-4 flex items-center gap-3">
                 {feature.icon}
                 <h3 className="text-xl font-semibold">{feature.title}</h3>
               </div>
               <p className="text-muted-foreground">{feature.description}</p>
               <div className="mt-4 flex items-center text-sm font-medium text-primary">
-                {feature.title === 'Daylist Feature' ? 'Coming soon' : 'Try it now'}
+                {feature.comingSoon ? 'Coming soon' : 'Try it now'}
                 <svg
                   className="ml-1 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1"
                   fill="none"
@@ -178,6 +224,45 @@ export function HomePage() {
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)} 
       />
+
+      {showWarning && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        >
+          <div className={`w-full max-w-md rounded-lg border ${warningFeature === 'inDevelopment' ? 'border-yellow-500/20' : 'border-blue-500/20'} bg-background p-6 shadow-lg`}>
+            <div className={`mb-4 flex items-center gap-3 ${warningFeature === 'inDevelopment' ? 'text-yellow-500' : 'text-blue-500'}`}>
+              <AlertTriangle className="h-6 w-6" />
+              <h3 className="text-xl font-bold">
+                {warningFeature === 'inDevelopment' ? 'Feature in Development' : 'Feature Coming Soon'}
+              </h3>
+            </div>
+            <p className="mb-6 text-muted-foreground">
+              {warningFeature === 'inDevelopment' 
+                ? 'The Picture-to-Song feature is currently in development and may not work as intended. Would you like to continue anyway?' 
+                : 'The Daylist feature is coming soon! Would you like to preview it anyway?'}
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowWarning(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleContinueToFeature}
+                className={warningFeature === 'inDevelopment' 
+                  ? "bg-yellow-500 text-white hover:bg-yellow-600" 
+                  : "bg-blue-500 text-white hover:bg-blue-600"}
+              >
+                Continue Anyway
+              </Button>
+            </div>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 } 

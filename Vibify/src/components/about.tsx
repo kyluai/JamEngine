@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Headphones, Heart, Coffee } from 'lucide-react';
+import { Headphones, Heart, Coffee, Code, Music } from 'lucide-react';
 import { JamEngineLogo } from './JamEngineLogo';
 
 export function About() {
@@ -27,37 +27,36 @@ export function About() {
           >
             <div className="rounded-2xl border border-muted bg-muted/5 p-8">
               <div className="flex items-center gap-4">
-                <Coffee className="h-8 w-8 text-primary" />
-                <h3 className="text-xl font-semibold">Just a College Student with a Dream</h3>
+                <Code className="h-8 w-8 text-primary" />
+                <h3 className="text-xl font-semibold">Two Friends, One Passion</h3>
               </div>
               <p className="mt-4 text-lg text-muted-foreground">
-                Hey! I'm just a regular college student who loves music and tech. Between late-night study sessions
-                and coffee runs, I realized how music has this amazing power to transform any moment into something
-                special. That's when The Jam Engine was born.
+                We're two friends who started coding together in high school, bonding over our shared love for technology and music. 
+                What began as simple coding projects evolved into a deep passion for creating tools that bring people together through music.
               </p>
             </div>
 
             <div className="rounded-2xl border border-muted bg-muted/5 p-8">
               <div className="flex items-center gap-4">
-                <Headphones className="h-8 w-8 text-primary" />
-                <h3 className="text-xl font-semibold">Sharing Vibes, One Playlist at a Time</h3>
+                <Music className="h-8 w-8 text-primary" />
+                <h3 className="text-xl font-semibold">Born at a Hackathon</h3>
               </div>
               <p className="mt-4 text-lg text-muted-foreground">
-                Whether you're grinding through finals week, chilling at a rooftop party, or just need that perfect
-                background music for your coding session – I get it. The Jam Engine is all about capturing those specific
-                moments and turning them into the perfect soundtrack.
+                The Jam Engine was born during this hackathon when we were struggling to find the perfect song to play while brainstorming ideas. 
+                We realized there had to be a better way to discover music that matches your current vibe or activity. 
+                That's when we decided to build something that would help people find the perfect soundtrack for any moment.
               </p>
             </div>
 
             <div className="rounded-2xl border border-muted bg-muted/5 p-8">
               <div className="flex items-center gap-4">
                 <Heart className="h-8 w-8 text-primary" />
-                <h3 className="text-xl font-semibold">Built with Love (and lots of energy drinks)</h3>
+                <h3 className="text-xl font-semibold">Built with Passion</h3>
               </div>
               <p className="mt-4 text-lg text-muted-foreground">
-                This project started in my dorm room, fueled by passion, curiosity, and maybe a few too many energy
-                drinks. It's not just about algorithms and AI – it's about creating a community where we can all
-                share our vibes and discover new music together.
+                This project combines our love for coding and music into something we hope will make a difference in how people discover and enjoy music. 
+                We've poured our hearts into creating an experience that's both fun and useful, leveraging Spotify's amazing API to bring you personalized recommendations 
+                that truly match your current vibe.
               </p>
             </div>
           </motion.div>
@@ -69,7 +68,7 @@ export function About() {
             className="mt-12 text-center"
           >
             <p className="text-lg text-muted-foreground">
-              Thanks for being part of this journey. Let's make some awesome playlists together! 🎵✨
+              Thanks for checking out our passion project! We hope The Jam Engine helps you discover your next favorite song. 🎵✨
             </p>
           </motion.div>
         </div>

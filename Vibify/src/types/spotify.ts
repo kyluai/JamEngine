@@ -10,12 +10,13 @@ export interface SpotifyRecommendation {
   imageUrl: string;
   previewUrl: string;
   spotifyUrl: string;
-  description: string;
-  mood: string;
+  description?: string;
+  mood?: string;
   genres: string[];
   tempo: number;
   colors?: string[];
   aesthetic?: string;
+  attribution?: string;
 }
 
 /**
@@ -72,6 +73,7 @@ export interface VisualFeatures {
   contrast: number;
   saturation: number;
   warmth: number;
+  sharpness: number;
 }
 
 export interface SpotifyTrack {
