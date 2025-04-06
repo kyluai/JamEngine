@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion';
-import { Music2, Menu, X, CheckCircle2 } from 'lucide-react';
+import { Menu, X, CheckCircle2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from './ui/button';
 import { Link, useLocation } from 'react-router-dom';
 import { SpotifyService } from '../lib/spotify-service';
+import { JamEngineLogo } from './JamEngineLogo';
 
 interface NavbarProps {
   isAuthenticated: boolean;
@@ -29,7 +30,7 @@ export function Navbar({ isAuthenticated, onLogin }: NavbarProps) {
     <nav className="fixed top-0 z-50 w-full border-b border-muted/20 bg-background/80 backdrop-blur-lg">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
-          <Music2 className="h-8 w-8 text-primary" />
+          <JamEngineLogo size={32} className="text-primary" />
           <span className="text-xl font-bold">The Jam Engine</span>
         </Link>
 

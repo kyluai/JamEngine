@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Music2 } from 'lucide-react';
 import { Navbar } from './components/navbar';
@@ -9,14 +10,15 @@ import { About } from './components/about';
 import { LoginModal } from './components/login-modal';
 import { NowPlaying } from './components/now-playing';
 import { SpotifyService } from './lib/spotify-service';
-import { AppleMusicService } from './lib/apple-music-service';
-import { SoundCloudService } from './lib/soundcloud-service';
+import { HomePage } from './pages/HomePage';
+import { SmartRadioPage } from './pages/SmartRadioPage';
+import { SongGeneratorPage } from './pages/SongGeneratorPage';
+import { PlaylistGeneratorPage } from './pages/PlaylistGeneratorPage';
+import { PictureToSongPage } from './pages/PictureToSongPage';
+import { DaylistPage } from './pages/DaylistPage';
 import type { Recommendation } from './lib/music-service.interface';
 import { MusicSearchDemo } from './components/MusicSearchDemo';
 import './App.css';
-
-const appleMusicService = new AppleMusicService();
-const soundCloudService = new SoundCloudService();
 
 function App() {
   const [spotifyService] = useState(() => new SpotifyService());
@@ -24,9 +26,67 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentMood, setCurrentMood] = useState<string | undefined>(undefined);
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
   const [text, setText] = useState('');
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Initialize theme from localStorage
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | 'system' | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      applyTheme(savedTheme);
+    } else {
+      // Default to system theme if no preference is saved
+      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      applyTheme('system');
+    }
+    
+    // Listen for system theme changes
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      const currentTheme = localStorage.getItem('theme') as 'light' | 'dark' | 'system' | null;
+      if (currentTheme === 'system') {
+        const systemTheme = mediaQuery.matches ? 'dark' : 'light';
+        document.documentElement.classList.toggle('dark', systemTheme === 'dark');
+      }
+    };
+    
+    mediaQuery.addEventListener('change', handleChange);
+    
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  // Listen for theme changes from localStorage
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'theme') {
+        const newTheme = e.newValue as 'light' | 'dark' | 'system' | null;
+        if (newTheme) {
+          setTheme(newTheme);
+          applyTheme(newTheme);
+        }
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  const applyTheme = (theme: 'light' | 'dark' | 'system') => {
+    if (theme === 'system') {
+      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.classList.toggle('dark', systemTheme === 'dark');
+    } else {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+    }
+  };
 
   useEffect(() => {
     // Check if we're handling a callback
@@ -102,19 +162,12 @@ function App() {
     setError(null);
 
     try {
-      // Try Apple Music first
-      const appleRecs = await appleMusicService.getRecommendationsFromText(text);
-      setRecommendations(appleRecs);
-    } catch (appleError) {
-      console.error('Apple Music error:', appleError);
-      try {
-        // Fallback to SoundCloud
-        const soundCloudRecs = await soundCloudService.getRecommendationsFromText(text);
-        setRecommendations(soundCloudRecs);
-      } catch (soundCloudError) {
-        console.error('SoundCloud error:', soundCloudError);
-        setError('Failed to get recommendations. Please try again.');
-      }
+      // Get recommendations from Spotify
+      const spotifyRecs = await spotifyService.getRecommendationsFromText(text);
+      setRecommendations(spotifyRecs);
+    } catch (spotifyError) {
+      console.error('Spotify error:', spotifyError);
+      setError('Failed to get recommendations. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -126,23 +179,44 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="loading-spinner" />
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="animate-spin">
+          <Music2 className="w-8 h-8" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">Vibify</h1>
-        </div>
-      </header>
-      <main>
-        <MusicSearchDemo />
-      </main>
-    </div>
+    <Router>
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar onLogin={handleLogin} isAuthenticated={isAuthenticated} />
+        
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/smart-radio" element={<SmartRadioPage />} />
+          <Route path="/song-generator" element={<SongGeneratorPage />} />
+          <Route path="/playlist-generator" element={<PlaylistGeneratorPage />} />
+          <Route path="/picture-to-song" element={<PictureToSongPage />} />
+          <Route path="/daylist" element={<DaylistPage />} />
+        </Routes>
+
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="fixed bottom-4 right-4 bg-destructive text-destructive-foreground p-4 rounded-lg shadow-lg"
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {isAuthenticated && <NowPlaying spotifyService={spotifyService} />}
+      </div>
+    </Router>
   );
 }
 

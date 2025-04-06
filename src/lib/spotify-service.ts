@@ -1,17 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { MusicService, Track, Recommendation, CurrentTrack } from './music-service.interface';
 
-// Add Vite environment variable types
-interface ImportMetaEnv {
-  VITE_SPOTIFY_CLIENT_ID: string;
-  VITE_SPOTIFY_CLIENT_SECRET: string;
-  VITE_SPOTIFY_REDIRECT_URI?: string;
-}
-
-interface ImportMeta {
-  env: ImportMetaEnv;
-}
-
 interface SpotifyTrack {
   id: string;
   name: string;
@@ -143,477 +132,141 @@ export class SpotifyService implements MusicService {
     }
 
     try {
-      const params = new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: this.refreshToken,
-        client_id: this.CLIENT_ID,
-        client_secret: this.CLIENT_SECRET
-      });
-
-      const response = await axios.post('https://accounts.spotify.com/api/token', params, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      });
+      const response = await axios.post('https://accounts.spotify.com/api/token',
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: this.refreshToken,
+          client_id: this.CLIENT_ID,
+          client_secret: this.CLIENT_SECRET
+        }), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
 
       this.accessToken = response.data.access_token;
       localStorage.setItem('spotify_access_token', this.accessToken);
     } catch (error) {
-      console.error('Error refreshing Spotify token:', error);
-      throw new Error('Failed to refresh Spotify token');
+      console.error('Error refreshing token:', error);
+      throw new Error('Failed to refresh access token');
     }
   }
 
   private async makeRequest<T>(url: string, method: 'get' | 'post' = 'get', data?: any): Promise<T> {
     if (!this.accessToken) {
-      throw new Error('Not authenticated with Spotify');
+      throw new Error('Not authenticated');
     }
 
     try {
-      const response = await axios.request<T>({
-        url,
+      const response = await axios({
         method,
+        url,
+        data,
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        data
+          'Authorization': `Bearer ${this.accessToken}`
+        }
       });
-
       return response.data;
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
+      if (error instanceof AxiosError && error.response?.status === 401) {
         await this.refreshAccessToken();
-        return this.makeRequest(url, method, data);
+        // Retry the request with new token
+        const response = await axios({
+          method,
+          url,
+          data,
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`
+          }
+        });
+        return response.data;
       }
-      throw error;
-    }
-  }
-
-  private async fetchSpotifyApi<T>(endpoint: string, method: string = 'GET', body?: any): Promise<T> {
-    if (!this.accessToken) {
-      throw new Error('Not authenticated with Spotify');
-    }
-
-    try {
-      const response = await fetch(`https://api.spotify.com/${endpoint}`, {
-        method,
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: body ? JSON.stringify(body) : undefined
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          this.accessToken = null;
-          localStorage.removeItem('spotify_access_token');
-          throw new Error('Session expired. Please log in again.');
-        }
-        throw new Error(`Spotify API error: ${response.statusText}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Spotify API error:', error);
       throw error;
     }
   }
 
   public async searchTracks(query: string): Promise<Track[]> {
-    const response = await this.fetchSpotifyApi<{ tracks: { items: SpotifyTrack[] } }>(
-      `v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`
+    const response = await this.makeRequest<SpotifySearchResponse>(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`
     );
-
     return response.tracks.items.map(this.convertSpotifyTrack);
   }
 
   private convertSpotifyTrack(track: SpotifyTrack): Track {
     return {
+      id: track.id,
       title: track.name,
-      artist: track.artists.map(artist => artist.name).join(', '),
-      mood: 'general',
-      confidence: 0.8,
-      tempo: 120,
-      genre: 'Unknown',
-      description: `Track from ${track.album.name}`,
-      previewUrl: track.preview_url || '',
+      artist: track.artists[0].name,
+      album: track.album.name,
+      imageUrl: track.album.images[0]?.url || '',
+      previewUrl: track.preview_url,
       externalUrl: track.external_urls.spotify,
-      imageUrl: track.album.images[0]?.url || ''
+      duration: track.duration_ms
     };
-  }
-
-  private async getRecommendations(seedTracks: string[], mood: string): Promise<Track[]> {
-    try {
-      // Validate seed tracks
-      if (!seedTracks || seedTracks.length === 0) {
-        throw new Error('No seed tracks provided');
-      }
-
-      // Ensure we have valid track IDs and limit to 5 seeds
-      const validTrackIds = seedTracks.filter(id => id && id.length > 0).slice(0, 5);
-      if (validTrackIds.length === 0) {
-        throw new Error('No valid track IDs found');
-      }
-
-      console.log('Getting recommendations with seed tracks:', validTrackIds);
-      console.log('Mood:', mood);
-
-      const energy = this.getEnergyFromMood(mood);
-      const valence = this.getValenceFromMood(mood);
-      const danceability = this.getDanceabilityFromMood(mood);
-
-      // Create a proper query string instead of using URLSearchParams
-      const queryParams = {
-        seed_tracks: validTrackIds.join(','),
-        limit: 10,
-        target_energy: energy,
-        target_valence: valence,
-        target_danceability: danceability,
-        min_popularity: 20 // Lowered from 30 to get more tracks
-      };
-
-      console.log('Request parameters:', queryParams);
-
-      // Use the correct URL format for the recommendations endpoint
-      const response = await this.makeRequest<SpotifyRecommendationsResponse>(
-        `https://api.spotify.com/v1/recommendations?${new URLSearchParams(queryParams).toString()}`
-      );
-
-      console.log('Recommendations response:', {
-        status: response.status,
-        tracks: response.tracks?.length
-      });
-
-      if (!response.tracks) {
-        throw new Error('Invalid response from Spotify API');
-      }
-
-      return response.data.tracks.map((track: any) => ({
-        id: track.id,
-        name: track.name,
-        artist: track.artists[0].name,
-        album: track.album.name,
-        previewUrl: track.preview_url || null,
-        externalUrl: track.external_urls.spotify,
-        imageUrl: track.album.images[0]?.url || ''
-      }));
-    } catch (error) {
-      this.handleAxiosError(error);
-    }
-  }
-
-  private getEnergyFromMood(mood: string): number {
-    const moodEnergyMap: { [key: string]: number } = {
-      'happy': 0.8,
-      'sad': 0.3,
-      'energetic': 0.9,
-      'calm': 0.3,
-      'angry': 0.9,
-      'romantic': 0.5,
-      'nostalgic': 0.4,
-      'peaceful': 0.2
-    };
-    return moodEnergyMap[mood.toLowerCase()] || 0.5;
-  }
-
-  private getValenceFromMood(mood: string): number {
-    const moodValenceMap: { [key: string]: number } = {
-      'happy': 0.8,
-      'sad': 0.2,
-      'energetic': 0.7,
-      'calm': 0.6,
-      'angry': 0.3,
-      'romantic': 0.7,
-      'nostalgic': 0.5,
-      'peaceful': 0.7
-    };
-    return moodValenceMap[mood.toLowerCase()] || 0.5;
-  }
-
-  private getDanceabilityFromMood(mood: string): number {
-    const moodDanceabilityMap: { [key: string]: number } = {
-      'happy': 0.7,
-      'sad': 0.3,
-      'energetic': 0.8,
-      'calm': 0.3,
-      'angry': 0.6,
-      'romantic': 0.4,
-      'nostalgic': 0.5,
-      'peaceful': 0.2
-    };
-    return moodDanceabilityMap[mood.toLowerCase()] || 0.5;
-  }
-
-  public async getRecommendationsFromText(text: string): Promise<Recommendation[]> {
-    try {
-      // First, search for tracks based on the text
-      console.log('Searching for tracks based on text:', text);
-      const searchResults = await this.searchTracks(text);
-      console.log('Found tracks from search:', searchResults.length);
-      
-      if (searchResults.length === 0) {
-        throw new Error('No tracks found matching your description');
-      }
-      
-      // Get track IDs for recommendations (limit to 5 as required by Spotify API)
-      const seedTrackIds = searchResults.slice(0, 5).map(track => track.id);
-      console.log('Using seed track IDs:', seedTrackIds);
-      
-      // Detect mood from the text
-      const detectedMood = this.determineMood(text);
-      console.log('Detected mood:', detectedMood);
-      
-      // Get recommendations based on the seed tracks
-      const recommendations = await this.getRecommendations(seedTrackIds, detectedMood);
-      console.log('Got recommendations:', recommendations.length);
-      
-      // Transform the recommendations into the expected format
-      return recommendations.map(track => ({
-        title: track.name,
-        artist: track.artist,
-        mood: detectedMood,
-        confidence: 0.8,
-        tempo: 120, // Default tempo value
-        genre: 'Various',
-        description: `A ${detectedMood} song that matches your vibe`,
-        previewUrl: track.previewUrl,
-        externalUrl: track.externalUrl,
-        imageUrl: track.imageUrl
-      }));
-    } catch (error) {
-      console.error('Error in getRecommendationsFromText:', error);
-      
-      if (axios.isAxiosError(error)) {
-        console.error('Spotify API error:', {
-          status: error.response?.status,
-          message: error.response?.data?.error?.message || error.message,
-          details: error.response?.data
-        });
-        
-        if (error.response?.status === 401) {
-          this.initiateLogin();
-          throw new Error('Your session has expired. Please log in again.');
-        }
-      }
-      
-      if (error instanceof Error) {
-        if (error.message.includes('access token')) {
-          this.initiateLogin();
-        }
-        throw error;
-      }
-      
-      throw new Error('Failed to get recommendations. Please try again.');
-    }
-  }
-  
-  private async getSimpleRecommendations(text: string, mood: string): Promise<Recommendation[]> {
-    try {
-      // Try to search with both text and mood
-      console.log('Trying to search with text and mood:', text, mood);
-      const searchResults = await this.searchTracks(`${text} ${mood}`);
-      
-      if (searchResults.length === 0) {
-        // If no results, try with just the mood
-        console.log('No results with text and mood, trying with just mood:', mood);
-        const moodSearchResults = await this.searchTracks(mood);
-        
-        if (moodSearchResults.length === 0) {
-          throw new Error('No tracks found matching your description');
-        }
-        
-        return moodSearchResults.map(track => ({
-          title: track.name,
-          artist: track.artist,
-          mood: mood,
-          confidence: 0.7,
-          tempo: 120, // Default tempo value
-          genre: 'Various',
-          description: `A ${mood} song that matches your vibe`,
-          previewUrl: track.previewUrl,
-          externalUrl: track.externalUrl,
-          imageUrl: track.imageUrl
-        }));
-      }
-      
-      return searchResults.map(track => ({
-        title: track.name,
-        artist: track.artist,
-        mood: mood,
-        confidence: 0.8,
-        tempo: 120, // Default tempo value
-        genre: 'Various',
-        description: `A ${mood} song that matches your vibe`,
-        previewUrl: track.previewUrl,
-        externalUrl: track.externalUrl,
-        imageUrl: track.imageUrl
-      }));
-    } catch (error) {
-      console.error('Error in getSimpleRecommendations:', error);
-      throw error;
-    }
-  }
-
-  private getGenresForMood(mood: string, availableGenres: string[]): string[] {
-    const moodGenreMap: { [key: string]: string[] } = {
-      'happy': ['pop', 'dance', 'disco', 'funk', 'soul', 'r-n-b'],
-      'sad': ['acoustic', 'piano', 'folk', 'indie', 'alternative'],
-      'energetic': ['rock', 'metal', 'punk', 'electronic', 'dance'],
-      'calm': ['ambient', 'classical', 'jazz', 'chill', 'meditation'],
-      'angry': ['metal', 'rock', 'punk', 'grunge', 'industrial'],
-      'romantic': ['r-n-b', 'soul', 'jazz', 'pop', 'indie'],
-      'nostalgic': ['classic', 'rock', 'pop', 'folk', 'jazz'],
-      'peaceful': ['ambient', 'classical', 'meditation', 'chill', 'jazz']
-    };
-
-    const defaultGenres = ['pop', 'rock', 'hip-hop', 'electronic', 'dance'];
-    const moodGenres = moodGenreMap[mood.toLowerCase()] || defaultGenres;
-    
-    // Filter to only include available genres
-    return moodGenres.filter(genre => availableGenres.includes(genre));
-  }
-
-  private determineMood(text: string): string {
-    const moodKeywords: { [key: string]: string[] } = {
-      'happy': ['happy', 'joy', 'excited', 'cheerful', 'upbeat'],
-      'sad': ['sad', 'depressed', 'down', 'melancholy', 'blue'],
-      'energetic': ['energetic', 'pumped', 'excited', 'energized', 'powerful'],
-      'calm': ['calm', 'peaceful', 'relaxed', 'serene', 'tranquil'],
-      'angry': ['angry', 'frustrated', 'mad', 'upset', 'annoyed'],
-      'romantic': ['romantic', 'love', 'passionate', 'intimate', 'romance'],
-      'nostalgic': ['nostalgic', 'memories', 'remember', 'past', 'old'],
-      'peaceful': ['peaceful', 'quiet', 'serene', 'tranquil', 'calm']
-    };
-
-    const words = text.toLowerCase().split(/\s+/);
-    let maxMatches = 0;
-    let detectedMood = 'neutral';
-
-    for (const [mood, keywords] of Object.entries(moodKeywords)) {
-      const matches = words.filter(word => keywords.includes(word)).length;
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        detectedMood = mood;
-      }
-    }
-
-    return detectedMood;
   }
 
   public async getCurrentTrack(): Promise<CurrentTrack | null> {
     try {
-      console.log('getCurrentTrack called');
-      const token = await this.getAccessToken();
-      console.log('Access token obtained for getCurrentTrack');
+      const response = await this.makeRequest<SpotifyCurrentlyPlayingResponse>(
+        'https://api.spotify.com/v1/me/player/currently-playing'
+      );
       
-      const response = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      console.log('getCurrentTrack response status:', response.status);
-      
-      if (response.status === 204) {
-        console.log('No track currently playing (204 status)');
+      if (!response.item) {
         return null;
       }
-      
-      const track = response.data.item;
-      const isPlaying = response.data.is_playing;
-      const progress = response.data.progress_ms;
-      const duration = track.duration_ms;
-      
-      console.log('Track data:', { 
-        name: track.name, 
-        artist: track.artists[0].name,
-        isPlaying,
-        progress,
-        duration
-      });
-      
+
       return {
-        name: track.name,
-        artist: track.artists[0].name,
-        album: track.album.name,
-        imageUrl: track.album.images[0]?.url || '',
-        isPlaying,
-        progress,
-        duration
+        ...this.convertSpotifyTrack(response.item),
+        isPlaying: response.is_playing,
+        progress: response.progress_ms
       };
     } catch (error) {
       console.error('Error getting current track:', error);
-      throw error;
+      return null;
     }
   }
-  
+
   public async pausePlayback(): Promise<void> {
-    try {
-      const token = await this.getAccessToken();
-      
-      await axios.put('https://api.spotify.com/v1/me/player/pause', null, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-    } catch (error) {
-      console.error('Error pausing playback:', error);
-      throw error;
-    }
+    await this.makeRequest('https://api.spotify.com/v1/me/player/pause', 'post');
   }
-  
+
   public async resumePlayback(): Promise<void> {
-    try {
-      const token = await this.getAccessToken();
-      
-      await axios.put('https://api.spotify.com/v1/me/player/play', null, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-    } catch (error) {
-      console.error('Error resuming playback:', error);
-      throw error;
-    }
+    await this.makeRequest('https://api.spotify.com/v1/me/player/play', 'post');
   }
-  
+
   public async skipToNextTrack(): Promise<void> {
-    try {
-      const token = await this.getAccessToken();
-      
-      await axios.post('https://api.spotify.com/v1/me/player/next', null, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-    } catch (error) {
-      console.error('Error skipping to next track:', error);
-      throw error;
-    }
+    await this.makeRequest('https://api.spotify.com/v1/me/player/next', 'post');
   }
-  
+
   public async skipToPreviousTrack(): Promise<void> {
-    try {
-      const token = await this.getAccessToken();
-      
-      await axios.post('https://api.spotify.com/v1/me/player/previous', null, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-    } catch (error) {
-      console.error('Error skipping to previous track:', error);
-      throw error;
-    }
+    await this.makeRequest('https://api.spotify.com/v1/me/player/previous', 'post');
   }
 
-  async getTopTracks(timeRange: 'short_term' | 'medium_term' | 'long_term' = 'medium_term', limit: number = 5): Promise<Track[]> {
-    const response = await this.fetchSpotifyApi<{ items: SpotifyTrack[] }>(
-      `v1/me/top/tracks?time_range=${timeRange}&limit=${limit}`
-    );
+  public async getRecommendationsFromText(text: string): Promise<Recommendation[]> {
+    try {
+      // Get seed tracks based on text analysis
+      const searchResults = await this.searchTracks(text);
+      if (searchResults.length === 0) {
+        throw new Error('No tracks found matching the input text');
+      }
 
-    return response.items.map(this.convertSpotifyTrack);
+      // Use the first track as a seed
+      const seedTrack = searchResults[0];
+      
+      // Get recommendations based on the seed track
+      const recommendations = await this.makeRequest<SpotifyRecommendationsResponse>(
+        `https://api.spotify.com/v1/recommendations?seed_tracks=${seedTrack.id}&limit=10`
+      );
+
+      return recommendations.tracks.map(track => ({
+        ...this.convertSpotifyTrack(track),
+        confidence: 0.8,
+        mood: 'neutral',
+        description: `Based on your input: "${text}"`
+      }));
+    } catch (error) {
+      console.error('Error getting recommendations:', error);
+      throw new Error('Failed to get recommendations');
+    }
   }
 } 
