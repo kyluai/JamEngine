@@ -5,6 +5,7 @@ import path from 'path';
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  
   return {
     plugins: [react()],
     resolve: {
@@ -21,7 +22,28 @@ export default defineConfig(({ mode }) => {
       exclude: ['lucide-react'],
     },
     define: {
-      'process.env': env
+      'process.env': env,
+      'import.meta.env': {
+        VITE_APPLE_MUSIC_DEVELOPER_TOKEN: env.VITE_APPLE_MUSIC_DEVELOPER_TOKEN,
+        VITE_APPLE_MUSIC_TEAM_ID: env.VITE_APPLE_MUSIC_TEAM_ID,
+        VITE_APPLE_MUSIC_KEY_ID: env.VITE_APPLE_MUSIC_KEY_ID,
+        VITE_APPLE_MUSIC_PRIVATE_KEY: env.VITE_APPLE_MUSIC_PRIVATE_KEY,
+        VITE_SOUNDCLOUD_CLIENT_ID: env.VITE_SOUNDCLOUD_CLIENT_ID,
+        VITE_SOUNDCLOUD_CLIENT_SECRET: env.VITE_SOUNDCLOUD_CLIENT_SECRET,
+        VITE_SOUNDCLOUD_REDIRECT_URI: env.VITE_SOUNDCLOUD_REDIRECT_URI
+      }
+    },
+    build: {
+      outDir: 'dist',
+      sourcemap: true,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            music: ['axios', 'jsonwebtoken']
+          }
+        }
+      }
     }
   };
 });

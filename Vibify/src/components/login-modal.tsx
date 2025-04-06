@@ -13,7 +13,7 @@ export function LoginModal({ isOpen, onLogin }: LoginModalProps) {
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
       <div className="relative w-full max-w-md rounded-lg bg-background p-6 shadow-lg">
         <div className="text-center space-y-4">
-          <h2 className="text-2xl font-bold">Welcome to Vibify! 🎵</h2>
+          <h2 className="text-2xl font-bold">Welcome to The Jam Engine 🎵</h2>
           <p className="text-muted-foreground">
             To create personalized playlists based on your mood, you'll need to connect your Spotify account.
           </p>

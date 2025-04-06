@@ -46,6 +46,26 @@ export class SpotifyService {
   private recommendationCache: Map<string, { timestamp: number; recommendations: SpotifyRecommendation[] }> = new Map();
   private readonly CACHE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 
+  private generateRandomString(length: number): string {
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const values = crypto.getRandomValues(new Uint8Array(length));
+    return Array.from(values)
+      .map(x => possible[x % possible.length])
+      .join('');
+  }
+
+  private readonly SCOPES = [
+    'user-read-private',
+    'user-read-email',
+    'user-read-playback-state',
+    'user-modify-playback-state',
+    'user-read-currently-playing',
+    'playlist-modify-public',
+    'playlist-modify-private',
+    'user-top-read',
+    'user-read-recently-played'
+  ].join(' ');
+
   constructor() {
     // Log environment variables (without exposing secrets)
     console.log('Spotify Client ID available:', !!this.CLIENT_ID);
@@ -73,28 +93,19 @@ export class SpotifyService {
   }
 
   public initiateLogin() {
-    const scope = [
-      'user-read-private',
-      'user-read-email',
-      'playlist-read-private',
-      'playlist-modify-private',
-      'playlist-modify-public',
-      'user-top-read',
-      'user-read-recently-played',
-      'user-library-read',
-      'user-read-playback-state',
-      'user-modify-playback-state',
-      'streaming'
-    ].join(' ');
-    
-    const authUrl = new URL('https://accounts.spotify.com/authorize');
-    authUrl.searchParams.append('response_type', 'code');
-    authUrl.searchParams.append('client_id', this.CLIENT_ID);
-    authUrl.searchParams.append('scope', scope);
-    authUrl.searchParams.append('redirect_uri', this.REDIRECT_URI);
-    authUrl.searchParams.append('show_dialog', 'true');
+    const state = this.generateRandomString(16);
+    localStorage.setItem('spotify_auth_state', state);
 
-    window.location.href = authUrl.toString();
+    const scope = this.SCOPES;
+    const url = new URL('https://accounts.spotify.com/authorize');
+    
+    url.searchParams.append('response_type', 'code');
+    url.searchParams.append('client_id', this.CLIENT_ID);
+    url.searchParams.append('scope', scope);
+    url.searchParams.append('redirect_uri', this.REDIRECT_URI);
+    url.searchParams.append('state', state);
+
+    window.location.href = url.toString();
   }
 
   public async handleCallback(code: string): Promise<void> {
@@ -1936,11 +1947,13 @@ export class SpotifyService {
         }
       });
       
+      // No track playing
       if (response.status === 204) {
         console.log('No track currently playing');
         return null;
       }
       
+      // Other error
       if (!response.ok) {
         console.error('Error fetching current track:', response.status, response.statusText);
         return null;
@@ -1948,6 +1961,7 @@ export class SpotifyService {
       
       const data = await response.json();
       
+      // No track data
       if (!data.item) {
         console.log('No track data in response');
         return null;

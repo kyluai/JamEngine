@@ -16,6 +16,8 @@ import { SongGeneratorPage } from './pages/SongGeneratorPage';
 import { PlaylistGeneratorPage } from './pages/PlaylistGeneratorPage';
 import { PictureToSongPage } from './pages/PictureToSongPage';
 import { DaylistPage } from './pages/DaylistPage';
+import type { Recommendation } from './lib/music-service.interface';
+import { MusicSearchDemo } from './components/MusicSearchDemo';
 import './App.css';
 
 function App() {
@@ -25,6 +27,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [currentMood, setCurrentMood] = useState<string | undefined>(undefined);
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const [text, setText] = useState('');
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Initialize theme from localStorage
   useEffect(() => {
@@ -151,6 +156,23 @@ function App() {
     setCurrentMood(mood);
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Get recommendations from Spotify
+      const spotifyRecs = await spotifyService.getRecommendationsFromText(text);
+      setRecommendations(spotifyRecs);
+    } catch (spotifyError) {
+      console.error('Spotify error:', spotifyError);
+      setError('Failed to get recommendations. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     console.log('App render - isAuthenticated:', isAuthenticated, 'currentMood:', currentMood);
   }, [isAuthenticated, currentMood]);
@@ -158,7 +180,9 @@ function App() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
-        <div className="loading-spinner" />
+        <div className="animate-spin">
+          <Music2 className="w-8 h-8" />
+        </div>
       </div>
     );
   }
@@ -166,40 +190,31 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-background text-foreground">
-        <div className="fixed inset-0 bg-[linear-gradient(to_right,#4F46E5,#7C3AED,#2DD4BF)] opacity-20 animate-gradient-xy blur-[100px]" />
+        <Navbar onLogin={handleLogin} isAuthenticated={isAuthenticated} />
         
-        <div className="relative">
-          <Navbar isAuthenticated={isAuthenticated} onLogin={handleLogin} />
-          
-          <main className="container mx-auto flex min-h-screen flex-col items-center px-4">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/smart-radio" element={<SmartRadioPage />} />
-              <Route path="/song-generator" element={<SongGeneratorPage />} />
-              <Route path="/playlist-generator" element={<PlaylistGeneratorPage />} />
-              <Route path="/picture-to-song" element={<PictureToSongPage />} />
-              <Route path="/daylist" element={<DaylistPage />} />
-              <Route path="/features" element={<Features />} />
-              <Route path="/pricing" element={<Pricing />} />
-              <Route path="/about" element={<About />} />
-            </Routes>
-          </main>
-        </div>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/smart-radio" element={<SmartRadioPage />} />
+          <Route path="/song-generator" element={<SongGeneratorPage />} />
+          <Route path="/playlist-generator" element={<PlaylistGeneratorPage />} />
+          <Route path="/picture-to-song" element={<PictureToSongPage />} />
+          <Route path="/daylist" element={<DaylistPage />} />
+        </Routes>
 
-        {isAuthenticated && (
-          <NowPlaying 
-            spotifyService={spotifyService} 
-            promptMood={currentMood}
-          />
-        )}
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="fixed bottom-4 right-4 bg-destructive text-destructive-foreground p-4 rounded-lg shadow-lg"
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {!isAuthenticated && (
-          <LoginModal
-            isOpen={true}
-            onClose={() => {}} // Prevent closing until authenticated
-            onLogin={handleLogin}
-          />
-        )}
+        {isAuthenticated && <NowPlaying spotifyService={spotifyService} />}
       </div>
     </Router>
   );
